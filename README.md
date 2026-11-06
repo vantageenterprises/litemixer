@@ -1,6 +1,6 @@
 # LiteMixer
 
-A small, dark-mode audio mixer for Windows 10 and 11. Channels, per-app routing, game and chat balance, and hotkeys,
+A small, light-weight audio mixer for Windows 10 and 11. Channels, per-app routing, game and chat balance, and hotkeys,
 with no drivers and no account.
 
 **[Download the latest version](https://github.com/vantageenterprises/litemixer/releases/latest)**
