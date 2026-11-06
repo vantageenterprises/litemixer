@@ -192,8 +192,66 @@ internal interface IPolicyConfig
     [PreserveSig] int SetEndpointVisibility([MarshalAs(UnmanagedType.LPWStr)] string deviceId, int visible);
 }
 
+[ComImport, Guid("1CB9AD4C-DBFA-4C32-B178-C2F568A703B2"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal interface IAudioClient
+{
+    void Initialize(int shareMode, uint flags, long bufferDuration, long period, IntPtr format, ref Guid session);
+    uint GetBufferSize();
+    long GetStreamLatency();
+    uint GetCurrentPadding();
+    [PreserveSig] int IsFormatSupported(int shareMode, IntPtr format, out IntPtr closest);
+    IntPtr GetMixFormat();
+    void GetDevicePeriod(out long defaultPeriod, out long minimumPeriod);
+    void Start();
+    void Stop();
+    void Reset();
+    void SetEventHandle(IntPtr handle);
+    [return: MarshalAs(UnmanagedType.IUnknown)]
+    object GetService(ref Guid iid);
+}
+
+[ComImport, Guid("F294ACFC-3146-4483-A7BF-ADDCA7C260E2"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal interface IAudioRenderClient
+{
+    IntPtr GetBuffer(uint frames);
+    void ReleaseBuffer(uint frames, uint flags);
+}
+
+[ComImport, Guid("C8ADBD64-E71E-48A0-A4DE-185C395CD317"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal interface IAudioCaptureClient
+{
+    void GetBuffer(out IntPtr data, out uint frames, out uint flags, out ulong devicePosition, out ulong qpcPosition);
+    void ReleaseBuffer(uint frames);
+    uint GetNextPacketSize();
+}
+
+[ComImport, Guid("41D949AB-9862-444A-80F6-C261334DA5EB"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal interface IActivateAudioInterfaceCompletionHandler
+{
+    void ActivateCompleted(IActivateAudioInterfaceAsyncOperation operation);
+}
+
+[ComImport, Guid("72A22D78-CDE4-431D-B8CC-843A71199B6D"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal interface IActivateAudioInterfaceAsyncOperation
+{
+    void GetActivateResult(out int result, [MarshalAs(UnmanagedType.IUnknown)] out object activated);
+}
+
+[ComImport, Guid("94EA2B94-E9CC-49E0-C0FF-EE64CA8F5B90"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal interface IAgileObject { }
+
 internal static class NativeAudio
 {
+    [DllImport("Mmdevapi.dll", ExactSpelling = true, PreserveSig = false)]
+    public static extern void ActivateAudioInterfaceAsync([MarshalAs(UnmanagedType.LPWStr)] string path, ref Guid iid, IntPtr parameters,
+        IActivateAudioInterfaceCompletionHandler handler, out IActivateAudioInterfaceAsyncOperation operation);
+
+    [DllImport("avrt.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr AvSetMmThreadCharacteristicsW(string task, out uint index);
+
+    [DllImport("avrt.dll")]
+    public static extern bool AvRevertMmThreadCharacteristics(IntPtr handle);
+
     [DllImport("ole32.dll")]
     public static extern int PropVariantClear(ref PropVariant value);
 }

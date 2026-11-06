@@ -51,6 +51,21 @@ public partial class App : Application
             return;
         }
 
+        int streamTone = Array.IndexOf(e.Args, "--stream-tone");
+        if (streamTone >= 0 && streamTone + 2 < e.Args.Length)
+        {
+            LiteMixer.Audio.StreamCheck.PlayTone(float.Parse(e.Args[streamTone + 1], System.Globalization.CultureInfo.InvariantCulture), e.Args[streamTone + 2] == "mute");
+            Environment.Exit(0);
+            return;
+        }
+        int streamCheck = Array.IndexOf(e.Args, "--stream-check");
+        if (streamCheck >= 0 && streamCheck + 1 < e.Args.Length)
+        {
+            LiteMixer.Audio.StreamCheck.Run(e.Args[streamCheck + 1]);
+            Environment.Exit(0);
+            return;
+        }
+
         int shots = Array.IndexOf(e.Args, "--screenshots");
         if (shots >= 0 && shots + 1 < e.Args.Length)
         {

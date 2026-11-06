@@ -19,11 +19,35 @@ public partial class SettingsWindow : Window
         InitializeComponent();
         model.ProfilesChanged += _vm.ReloadProfiles;
         model.ChannelsChanged += _vm.ReloadChannels;
+        model.StreamChanged += _vm.RefreshStream;
         Closed += (_, _) =>
         {
             model.ProfilesChanged -= _vm.ReloadProfiles;
             model.ChannelsChanged -= _vm.ReloadChannels;
+            model.StreamChanged -= _vm.RefreshStream;
         };
+    }
+
+    void StreamDevice_Click(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu();
+        var current = _model.Settings.StreamDeviceId;
+        var choices = _model.StreamDeviceChoices.OrderByDescending(d => Audio.StreamMath.LooksLikeCable(d.Name)).ToList();
+        foreach (var device in choices)
+            menu.Items.Add(Menus.Item(device.Name, () =>
+            {
+                _model.SetStreamDevice(device);
+                _vm.RefreshStream();
+            }, device.Id == current));
+        if (choices.Count == 0) menu.Items.Add(Menus.Item("No other output devices", () => { }, false, false));
+        menu.PlacementTarget = (UIElement)sender;
+        menu.IsOpen = true;
+    }
+
+    void Link_Navigate(object sender, System.Windows.Navigation.RequestNavigateEventArgs e)
+    {
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true });
+        e.Handled = true;
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -139,6 +163,29 @@ public sealed class SettingsVM : ObservableObject
     public ObservableCollection<HotkeyRow> Hotkeys { get; }
     public ObservableCollection<CapRow> Caps { get; } = new();
     public ObservableCollection<DuckRow> DuckChannels { get; } = new();
+    public ObservableCollection<StreamRow> StreamLevels { get; } = new();
+
+    public bool StreamEnabled
+    {
+        get => _model.StreamMixEnabled;
+        set
+        {
+            _model.StreamMixEnabled = value;
+            RefreshStream();
+        }
+    }
+
+    public string StreamDeviceName => _model.StreamDeviceName;
+    public string StreamStatus => _model.StreamStatus;
+    public Visibility NeedsCableVisibility => _model.HasVirtualCable ? Visibility.Collapsed : Visibility.Visible;
+
+    public void RefreshStream()
+    {
+        OnPropertyChanged(nameof(StreamEnabled));
+        OnPropertyChanged(nameof(StreamDeviceName));
+        OnPropertyChanged(nameof(StreamStatus));
+        OnPropertyChanged(nameof(NeedsCableVisibility));
+    }
     public ObservableCollection<HiddenRow> Hidden { get; } = new();
     public ObservableCollection<MixProfile> Profiles { get; } = new();
 
@@ -228,6 +275,8 @@ public sealed class SettingsVM : ObservableObject
     {
         Caps.Clear();
         foreach (var channel in _model.CappableChannels) Caps.Add(new CapRow(channel, _model));
+        StreamLevels.Clear();
+        foreach (var channel in _model.OutputChannels) StreamLevels.Add(new StreamRow(channel, _model));
         DuckChannels.Clear();
         foreach (var channel in _model.OutputChannels.Where(c => c != _model.Chat)) DuckChannels.Add(new DuckRow(channel, _model));
     }
@@ -318,6 +367,34 @@ public sealed class CapRow : ObservableObject
     }
 
     public string ValueText => _channel.Cap >= 100 ? "Off" : $"{_channel.Cap:0}%";
+}
+
+public sealed class StreamRow : ObservableObject
+{
+    readonly ChannelVM _channel;
+    readonly MixerModel _model;
+
+    public StreamRow(ChannelVM channel, MixerModel model)
+    {
+        _channel = channel;
+        _model = model;
+    }
+
+    public string Name => _channel.DisplayName;
+    public Brush Accent => _channel.Accent;
+
+    public double Value
+    {
+        get => _model.StreamLevel(_channel);
+        set
+        {
+            _model.SetStreamLevel(_channel, value);
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ValueText));
+        }
+    }
+
+    public string ValueText => $"{_model.StreamLevel(_channel):0}%";
 }
 
 public sealed class DuckRow : ObservableObject

@@ -35,6 +35,11 @@ public sealed class AppSettings
     public string DefaultChannel { get; set; } = "game";
     /// <summary>Sends games and well-known apps to the channel they belong in, the first time they play sound.</summary>
     public bool AutoSortApps { get; set; } = true;
+    /// <summary>Sends a second mix, with its own levels, to a device such as a virtual cable. Off unless asked for.</summary>
+    public bool StreamMixEnabled { get; set; }
+    public string? StreamDeviceId { get; set; }
+    /// <summary>Stream level in percent (channel id to percent). Missing means 100.</summary>
+    public Dictionary<string, double> StreamLevels { get; set; } = new();
     public bool StartWithWindows { get; set; } = true;
     public bool CheckForUpdates { get; set; } = true;
     /// <summary>Version the tray already announced, so each new version pops up only once.</summary>

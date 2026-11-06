@@ -135,6 +135,42 @@ internal sealed class AudioEngine : IDisposable
         return list;
     }
 
+    /// <summary>
+    /// Holds this program's own audio sessions at full volume. Everything it captures is scaled by its own session, so
+    /// another mixer, or Windows' Volume mixer, turning it down would quietly lower the stream mix.
+    /// </summary>
+    public void HoldOwnSessionsAtFull(IEnumerable<DeviceInfo> devices)
+    {
+        foreach (var device in devices)
+        {
+            var manager = GetManager(device.Id);
+            if (manager == null) continue;
+            IAudioSessionEnumerator? sessions = null;
+            try
+            {
+                sessions = manager.GetSessionEnumerator();
+                int count = sessions.GetCount();
+                for (int i = 0; i < count; i++)
+                {
+                    object? com = null;
+                    try
+                    {
+                        com = sessions.GetSession(i);
+                        if (com is IAudioSessionControl2 control && control.GetProcessId() == _ownPid && com is ISimpleAudioVolume volume)
+                        {
+                            volume.SetMasterVolume(1, ref _eventContext);
+                            volume.SetMute(false, ref _eventContext);
+                        }
+                    }
+                    catch { }
+                    finally { Release(com); }
+                }
+            }
+            catch { }
+            finally { Release(sessions); }
+        }
+    }
+
     SessionInfo? Describe(object com, string deviceId)
     {
         var control = (IAudioSessionControl2)com;

@@ -153,7 +153,7 @@ internal static class UiCheck
         Save(Offscreen(new CompactWindow(model)), folder, "6-compact");
 
         var settingsWindow = Offscreen(new SettingsWindow(model));
-        settingsWindow.Height = 1500;
+        settingsWindow.Height = 2300;
         Pump();
         Save(settingsWindow, folder, "7-settings");
 
@@ -163,6 +163,8 @@ internal static class UiCheck
         CheckChannelLooks(app, Check, folder);
         CheckAppSorting(app, Check);
         CheckUpdatePrompt(Check, folder);
+
+        CheckStreamMix(app, Check);
 
         // The quick check in the menus.
         var appMenu = new System.Windows.Controls.ContextMenu();
@@ -291,6 +293,79 @@ internal static class UiCheck
         check("with sorting off, mic apps are left alone", !model.ShouldFollowMic(5151));
         model.AutoSortApps = true;
         check("turning sorting back on applies again", model.ShouldFollowMic(4242) && model.ShouldFollowMic(5151));
+    }
+
+    static void CheckStreamMix(App app, Action<string, bool> check)
+    {
+        // Personal levels with the stream mix on: nothing audible may ever rise.
+        check("a channel at zero sits at the inaudible floor", StreamMath.PersonalLevel(0, false) == (StreamMath.Floor, false));
+        check("a muted channel sits at the floor too, so the stream still gets it", StreamMath.PersonalLevel(0.5, true) == (StreamMath.Floor, false));
+        check("the floor is -100 dB", Math.Abs(20 * Math.Log10(StreamMath.Floor) + 100) < 0.01);
+        check("a normal level is left exactly as it is", StreamMath.PersonalLevel(0.4, false) == (0.4, false));
+        bool neverLouder = true;
+        for (double level = 0; level <= 1; level += 0.0005)
+        {
+            neverLouder &= StreamMath.PersonalLevel(level, false).Level <= Math.Max(level, StreamMath.Floor);
+            neverLouder &= StreamMath.PersonalLevel(level, true).Level <= StreamMath.Floor;
+        }
+        check("the stream mix never makes anything louder for you", neverLouder);
+        check("muting drops the buffered audio instead of popping", StreamMath.IsGainJump(2, 100000));
+        check("moving a fader doesn't drop any audio", !StreamMath.IsGainJump(2, 2.5f) && !StreamMath.IsGainJump(2, 1));
+        check("a source starting up isn't a jump", !StreamMath.IsGainJump(0, 100));
+
+        // Gains.
+        check("the gain undoes the personal level", Math.Abs(StreamMath.Gain(1, 0.5) - 2) < 0.0001 && Math.Abs(StreamMath.Gain(0.5, 0.5) - 1) < 0.0001);
+        check("a stream level of zero is silent", StreamMath.Gain(0, 0.5) == 0);
+        check("the gain has a ceiling", StreamMath.Gain(1, StreamMath.Floor / 1000) == StreamMath.MaxGain);
+        check("a session at nothing gives no gain", StreamMath.Gain(1, 0) == 0);
+
+        // Which apps are captured.
+        check("broadcast apps are left out, so they can't feed back", new[] { "obs64", "streamlabs desktop", "streamlabs obs", "xsplit.core" }.All(StreamMath.IsBroadcastApp));
+        check("normal apps are included", !StreamMath.IsBroadcastApp("spotify") && !StreamMath.IsBroadcastApp("discord"));
+        var parents = new Dictionary<uint, uint> { [20] = 10, [30] = 20, [40] = 5, [10] = 1, [50] = 50, [60] = 70, [70] = 60 };
+        var targets = StreamMath.CaptureTargets([10, 30, 40], parents);
+        check("a launcher isn't captured along with its game", targets.SetEquals([30, 40]));
+        check("process 0 is never captured", !StreamMath.CaptureTargets([0, 40], parents).Contains(0u));
+        check("a process listing itself as parent can't hang it, and stays", StreamMath.CaptureTargets([50], parents).SetEquals([50]));
+        check("a parent loop can't hang it", StreamMath.CaptureTargets([60], parents).Count <= 1);
+
+        // Which devices are allowed.
+        string[] connected = ["headset", "speakers", "cable"];
+        check("a device you listen on is refused", StreamMath.DeviceProblem("headset", connected, ["headset"]) != null);
+        check("a cable is accepted", StreamMath.DeviceProblem("cable", connected, ["headset"]) == null);
+        check("no device is reported", StreamMath.DeviceProblem(null, connected, []) != null);
+        check("a missing device is reported", StreamMath.DeviceProblem("gone", connected, []) != null);
+        check("cables are recognized", StreamMath.LooksLikeCable("CABLE Input (VB-Audio Virtual Cable)") && StreamMath.LooksLikeCable("Voicemeeter Input"));
+        check("real outputs aren't taken for cables", !StreamMath.LooksLikeCable("Headphones (Wireless Headset)") && !StreamMath.LooksLikeCable("Speakers (Realtek Audio)"));
+
+        // In the mixer, with no devices and no sessions.
+        var settings = new AppSettings();
+        check("the stream mix is off by default", !settings.StreamMixEnabled);
+        var model = new MixerModel(settings);
+        app.SetModelForCheck(model);
+        int audioCalls = 0;
+        foreach (var channel in model.Channels)
+        {
+            channel.VolumeChanged = _ => audioCalls++;
+            channel.MutedChanged = _ => audioCalls++;
+        }
+        check("stream levels start at 100%", model.StreamLevel(model.Game) == 100);
+        model.SetStreamLevel(model.Game, 35);
+        check("a stream level is saved", model.StreamLevel(model.Game) == 35 && settings.StreamLevels["game"] == 35);
+        check("stream levels don't move your faders", model.Game.Volume == 100 && audioCalls == 0);
+        model.SetStreamLevel(model.Game, 100);
+        check("100% stores nothing", !settings.StreamLevels.ContainsKey("game"));
+        model.StreamMixEnabled = true;
+        check("turning it on with no device picks nothing and says so", settings.StreamDeviceId == null && model.StreamStatus.Length > 0);
+        model.StreamMixEnabled = false;
+        check("turning it off clears the message", model.StreamStatus.Length == 0);
+        var custom = model.AddChannel("Stream Only");
+        model.SetStreamLevel(custom, 20);
+        model.DeleteChannel(custom);
+        check("deleting a channel removes its stream level", settings.StreamLevels.Count == 0);
+        var saved = System.Text.Json.JsonSerializer.Deserialize<AppSettings>(System.Text.Json.JsonSerializer.Serialize(new AppSettings { StreamMixEnabled = true, StreamDeviceId = "x", StreamLevels = { ["chat"] = 10 } }))!;
+        check("stream settings survive a restart", saved.StreamMixEnabled && saved.StreamDeviceId == "x" && saved.StreamLevels["chat"] == 10);
+        check("older settings leave it off", !System.Text.Json.JsonSerializer.Deserialize<AppSettings>("{}")!.StreamMixEnabled);
     }
 
     static void CheckUpdatePrompt(Action<string, bool> check, string folder)

@@ -24,6 +24,8 @@ with no drivers and no account.
 - **Per-app volume** inside a channel, **hidden apps**, and **profiles** for one-click setups.
 - **Starts with Windows** in the tray and restores your devices, levels and assignments.
 - **Install it where you like:** choose the folder during setup. Updates stay in that folder.
+- **Stream mix** (off by default): a second set of levels for streaming and recording. See
+  [Streaming and recording](#streaming-and-recording).
 
 ## Screenshots
 
@@ -37,13 +39,52 @@ Add as many named channels as you like, drag them into any order, and scroll or 
 
 Apps and devices shown are sample names.
 
+## Streaming and recording
+
+The stream mix gives your audience their own levels. You can keep a game loud in your headset and quiet on stream, or
+play music on stream while it's muted for you. Your headset stays exactly as your faders have it.
+
+It works with OBS Studio, Streamlabs Desktop, XSplit and anything else that records from an audio input. Platforms like
+Twitch and YouTube get their audio from those apps, so there's nothing to set up on their side.
+
+**Setup**
+
+1. Install a virtual cable. [VB-Cable](https://vb-audio.com/Cable/) is a free download from VB-Audio. It's a separate
+   product with its own driver and terms, and LiteMixer doesn't install it for you. Restart your PC afterwards.
+2. In LiteMixer, open **Settings > Streaming and recording** and turn on **Send a stream mix**. Choose the cable under
+   **Send to**, usually called **CABLE Input**.
+3. Set the level of each channel for your stream.
+4. In your streaming app, add an audio input source and choose the other end of the cable, usually called
+   **CABLE Output**. In OBS that's **Sources > + > Audio Input Capture**.
+5. Turn off your streaming app's **Desktop Audio**, or your audience hears everything twice.
+
+To record, use the same setup. The stream mix goes to whatever your app is capturing, so a recording gets the same levels.
+
+**Good to know**
+
+- **Your mic isn't in the stream mix.** Add it in your streaming app as usual, so you keep its filters and its own track.
+- **Muted still reaches the stream.** Muting a channel, or turning it to zero, only silences it for you. To take a channel
+  off the stream, turn its stream level to zero.
+- **Devices you listen on can't be used.** The stream mix plays at its own levels, so LiteMixer refuses to send it to
+  your headset or speakers.
+- **Streaming apps are left out of the mix,** so their own sound can't feed back into your stream. Windows system sounds
+  aren't included either.
+- **Audio sync:** the mix arrives slightly behind your screen. If you notice it, adjust the sync offset in your
+  streaming app.
+- **Windows version:** this needs Windows 10 version 2004 or newer.
+- **Muted channels while the stream mix is on:** Windows captures nothing from a truly muted app, so a channel that's
+  silent for you sits at -100 dB instead, far below hearing. Windows' Volume mixer shows it as 0% rather than muted.
+- **OBS's Application Audio Capture** is a different way to capture apps, and it needs no cable. It follows your
+  LiteMixer faders and mutes rather than having its own levels, so turning a channel down also lowers it on stream.
+
 ## How it works
 
 LiteMixer installs no drivers. A channel is a group of apps: its volume scales each app's Windows session volume, and
 its output device uses Windows' own per-app routing (the same setting as Settings > System > Sound > Volume mixer).
 
 Because it doesn't sit in the audio path, it adds no latency and your sound keeps playing if it closes. It also means
-there is no EQ, surround or mic processing.
+there is no EQ, surround or mic processing. The stream mix works from a copy of each app's audio, so what you hear still
+doesn't pass through LiteMixer, though the stream mix itself stops if LiteMixer closes.
 
 Apps that choose their own device in their settings follow that choice. Set them to "Default" to let LiteMixer route
 them. Volume and mute still work either way.
@@ -90,6 +131,7 @@ installed; `installer/Pack` compresses the app into its payload, and the same ex
 Checks that change nothing real:
 
 - App: `LiteMixer.exe --ui-check <dir>` renders the windows offscreen and tests channel and updater logic.
+  `--stream-check <file>` tests the stream mix with real capture, using a silent tone in a throwaway process.
   `--screenshots <dir>` renders the images in `docs/screenshots` from sample data.
 - Installer: `--render <dir>` draws every screen, `--test-install <dir>` unpacks into that folder,
   `--check-location <dir>` tests choosing an install folder inside that folder, and `--preview` opens the real window

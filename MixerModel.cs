@@ -38,6 +38,9 @@ public sealed class MixerModel : ObservableObject, IDisposable
     // App key to the channel id sorting picked. Rebuilt each run, so better rules apply to apps the user hasn't placed.
     readonly Dictionary<string, string> _sorted = new();
     readonly HashSet<uint> _micFollowed = new();
+    StreamMix? _stream;
+    HashSet<uint>? _streamPids;
+    DateTime _streamRetryAt;
     readonly Dictionary<uint, string> _routed = new();
     // The level actually applied to sessions; trails the fader while a fade-in ramp runs.
     readonly Dictionary<ChannelVM, double> _applied = new();
@@ -235,6 +238,116 @@ public sealed class MixerModel : ObservableObject, IDisposable
             OnPropertyChanged();
             QueueSave();
         }
+    }
+
+    // ---- Stream mix ----
+
+    public event Action? StreamChanged;
+
+    public bool StreamMixEnabled
+    {
+        get => _s.StreamMixEnabled;
+        set
+        {
+            if (_s.StreamMixEnabled == value) return;
+            _s.StreamMixEnabled = value;
+            // Turning it on with nothing chosen picks a virtual cable, never a real output.
+            if (value && _s.StreamDeviceId == null)
+                _s.StreamDeviceId = StreamDeviceChoices.FirstOrDefault(d => StreamMath.LooksLikeCable(d.Name))?.Id;
+            UpdateStream();
+            QueueSave();
+        }
+    }
+
+    /// <summary>Output devices the stream mix may use: everything the user isn't listening on.</summary>
+    public IEnumerable<DeviceInfo> StreamDeviceChoices => RenderDevices.Where(d => !ListeningDeviceIds().Contains(d.Id));
+    public string StreamDeviceName => RenderDevices.FirstOrDefault(d => d.Id == _s.StreamDeviceId)?.Name ?? "Choose a device";
+    public bool HasVirtualCable => RenderDevices.Any(d => StreamMath.LooksLikeCable(d.Name));
+
+    public string StreamStatus { get; private set; } = "";
+
+    public void SetStreamDevice(DeviceInfo device)
+    {
+        if (_s.StreamDeviceId == device.Id) return;
+        _s.StreamDeviceId = device.Id;
+        StopStream();
+        UpdateStream();
+        QueueSave();
+    }
+
+    public double StreamLevel(ChannelVM channel) => _s.StreamLevels.GetValueOrDefault(channel.Id, 100);
+
+    public void SetStreamLevel(ChannelVM channel, double percent)
+    {
+        percent = Math.Clamp(Math.Round(percent), 0, 100);
+        if (percent >= 100) _s.StreamLevels.Remove(channel.Id);
+        else _s.StreamLevels[channel.Id] = percent;
+        ApplyChannel(channel);
+        QueueSave();
+    }
+
+    HashSet<string> ListeningDeviceIds()
+    {
+        var ids = _outputs.Select(OutputDeviceFor).OfType<string>().ToHashSet();
+        if (DefaultOutputId != null) ids.Add(DefaultOutputId);
+        return ids;
+    }
+
+    /// <summary>Starts, stops or repoints the mix to match the settings. Called after every poll, so devices coming and going are handled.</summary>
+    void UpdateStream()
+    {
+        var problem = _s.StreamMixEnabled
+            ? StreamMath.DeviceProblem(_s.StreamDeviceId, RenderDevices.Select(d => d.Id), ListeningDeviceIds())
+            : "";
+        if (problem != null)
+        {
+            StopStream();
+            SetStreamStatus(problem);
+            return;
+        }
+
+        if (_stream is { IsAlive: false })
+        {
+            var failure = _stream.Failure;
+            StopStream();
+            _streamRetryAt = DateTime.UtcNow.AddSeconds(5);
+            SetStreamStatus(failure ?? "The stream mix stopped.");
+        }
+        if (_stream == null)
+        {
+            if (DateTime.UtcNow < _streamRetryAt) return;
+            var deviceId = _s.StreamDeviceId!;
+            _stream = new StreamMix(() => new DeviceOutput(deviceId));
+            foreach (var session in _sessions) ApplyVolume(session);
+            _streamPids = null;
+            _stream.Start();
+        }
+
+        _engine.HoldOwnSessionsAtFull(RenderDevices);
+        var pids = _sessions.Where(s => !s.IsSystem && !StreamMath.IsBroadcastApp(s.Key)).Select(s => s.Pid).ToHashSet();
+        if (_streamPids == null || !pids.SetEquals(_streamPids))
+        {
+            _streamPids = pids;
+            _stream.SetSources(StreamMath.CaptureTargets(pids, StreamMix.ReadParents()));
+        }
+        SetStreamStatus($"Sending to {StreamDeviceName}.");
+    }
+
+    void StopStream()
+    {
+        if (_stream == null) return;
+        _stream.Dispose();
+        _stream = null;
+        _streamPids = null;
+        // Back to plain personal levels, so a channel at zero isn't left at the stream mix's floor.
+        foreach (var session in _sessions) ApplyVolume(session);
+    }
+
+    void SetStreamStatus(string status)
+    {
+        if (StreamStatus == status) return;
+        StreamStatus = status;
+        StreamChanged?.Invoke();
     }
 
     /// <summary>Remembers where a new app belongs. Apps the user placed are never looked at, and the answer isn't saved, so it stays a suggestion.</summary>
@@ -483,6 +596,7 @@ public sealed class MixerModel : ObservableObject, IDisposable
         _s.Channels.Remove(channel.Id);
         _s.Caps.Remove(channel.Id);
         _s.Looks.Remove(channel.Id);
+        _s.StreamLevels.Remove(channel.Id);
         _s.DuckChannels.Remove(channel.Id);
         _byId.Remove(channel.Id);
         _applied.Remove(channel);
@@ -603,6 +717,7 @@ public sealed class MixerModel : ObservableObject, IDisposable
 
         UpdateApps();
         UpdateDeviceRows();
+        if (_s.StreamMixEnabled || _stream != null) UpdateStream();
     }
 
     string? SyncDefault(EDataFlow flow, List<DeviceInfo> devices, string? saved, bool grace, Action<string> save)
@@ -758,6 +873,11 @@ public sealed class MixerModel : ObservableObject, IDisposable
         double level = _applied[Master] / 100.0 * _applied[channel] / 100.0 * BalanceFactor(channel) * DuckFactor(channel);
         bool mute = Master.Muted || channel.Muted;
         level *= AppVolume(session.Key) / 100.0;
+        if (_stream != null)
+        {
+            (level, mute) = StreamMath.PersonalLevel(level, mute);
+            _stream.SetGain(session.Pid, StreamMath.Gain(StreamLevel(channel) / 100.0 * AppVolume(session.Key) / 100.0, level));
+        }
         AudioEngine.SetSessionVolume(session, (float)level, mute);
     }
 
@@ -945,6 +1065,8 @@ public sealed class MixerModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        _stream?.Dispose();
+        _stream = null;
         _tick.Stop();
         _meterTimer.Stop();
         _rampTimer.Stop();
