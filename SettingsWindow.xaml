@@ -92,6 +92,14 @@
                 </StackPanel>
             </Border>
 
+            <!-- New apps -->
+            <TextBlock Text="NEW APPS" Style="{StaticResource Section}"/>
+            <TextBlock Style="{StaticResource Hint}"
+                       Text="Games go to Game, and common chat, music and video apps go to their channels. Anything else opens in your default channel. An app you move yourself stays where you put it. Apps using your microphone follow the Mic channel's device."/>
+            <Border Style="{StaticResource Card}">
+                <CheckBox Content="Sort new apps automatically" IsChecked="{Binding AutoSortApps, Mode=TwoWay}"/>
+            </Border>
+
             <!-- Auto-duck -->
             <TextBlock Text="AUTO-DUCK" Style="{StaticResource Section}"/>
             <TextBlock Style="{StaticResource Hint}"

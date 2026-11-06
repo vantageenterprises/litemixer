@@ -16,9 +16,7 @@ internal sealed class TrayIcon : IDisposable
     const int WmRButtonUp = 0x0205;
     const int WmMButtonUp = 0x0208;
     const int NimAdd = 0, NimModify = 1, NimDelete = 2;
-    const int NifMessage = 1, NifIcon = 2, NifTip = 4, NifInfo = 0x10;
-    const int NiifInfo = 1, NiifNoSound = 0x10;
-    const int NinBalloonUserClick = 0x0405;
+    const int NifMessage = 1, NifIcon = 2, NifTip = 4;
     const ushort RiMouseWheel = 0x0400;
 
     readonly HwndSource _source;
@@ -33,7 +31,6 @@ internal sealed class TrayIcon : IDisposable
     public event Action? Clicked;
     public event Action? MiddleClicked;
     public event Action? MenuRequested;
-    public event Action? BalloonClicked;
     /// <summary>Mouse wheel over the tray icon: +1 per notch up, -1 per notch down.</summary>
     public event Action<int>? Scrolled;
 
@@ -75,17 +72,6 @@ internal sealed class TrayIcon : IDisposable
         Shell_NotifyIcon(NimModify, ref data);
     }
 
-    /// <summary>A silent Windows notification; Windows holds it back during games and Focus sessions.</summary>
-    public void ShowBalloon(string title, string text)
-    {
-        var data = Data();
-        data.uFlags = NifInfo;
-        data.szInfoTitle = title;
-        data.szInfo = text;
-        data.dwInfoFlags = NiifInfo | NiifNoSound;
-        Shell_NotifyIcon(NimModify, ref data);
-    }
-
     void Add()
     {
         var data = Data();
@@ -115,7 +101,6 @@ internal sealed class TrayIcon : IDisposable
                 case WmMButtonUp: MiddleClicked?.Invoke(); break;
                 case WmRButtonUp: MenuRequested?.Invoke(); break;
                 case WmMouseMove: SetWheelHook(true); break;
-                case NinBalloonUserClick: BalloonClicked?.Invoke(); break;
             }
             handled = true;
         }

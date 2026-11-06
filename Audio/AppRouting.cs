@@ -21,6 +21,9 @@ internal static unsafe class AppRouting
     static IntPtr _factory;
     static bool _loaded;
 
+    /// <summary>Set by the offscreen checks, which must never change real routing.</summary>
+    internal static bool ReadOnly { get; set; }
+
     static IntPtr Factory
     {
         get
@@ -46,6 +49,7 @@ internal static unsafe class AppRouting
     /// <summary>Routes a process to a device, or back to the Windows default when deviceId is null.</summary>
     public static bool SetAppDevice(uint pid, string? deviceId, EDataFlow flow)
     {
+        if (ReadOnly) return false;
         var factory = Factory;
         if (factory == 0 || pid == 0) return false;
 
@@ -95,6 +99,7 @@ internal static unsafe class AppRouting
 
     public static void ClearAll()
     {
+        if (ReadOnly) return;
         var factory = Factory;
         if (factory == 0) return;
         try

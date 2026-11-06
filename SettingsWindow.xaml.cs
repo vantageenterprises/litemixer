@@ -80,7 +80,7 @@ public partial class SettingsWindow : Window
 
     // ---- Buttons ----
 
-    async void CheckUpdates_Click(object sender, RoutedEventArgs e) => await App.Current.CheckForUpdatesAsync();
+    async void CheckUpdates_Click(object sender, RoutedEventArgs e) => await App.Current.CheckForUpdatesAsync(userAsked: true);
 
     void TestBeep_Click(object sender, RoutedEventArgs e) => Beeper.Play(true, _model.Settings.MicBeepVolume);
 
@@ -152,6 +152,12 @@ public sealed class SettingsVM : ObservableObject
 
     public string UpdateStatus =>
         App.Current.Updater.Status is { Length: > 0 } status ? status : $"Version {Updater.CurrentText}";
+
+    public bool AutoSortApps
+    {
+        get => _model.AutoSortApps;
+        set { _model.AutoSortApps = value; OnPropertyChanged(); }
+    }
 
     public bool FadeIn
     {

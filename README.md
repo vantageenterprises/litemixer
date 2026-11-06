@@ -11,8 +11,10 @@ with no drivers and no account.
 
 - **Channels:** Master, Game, Chat, Video, Music and Mic, plus as many named channels of your own as you like.
 - **Make it yours:** hold a channel's name and drag to rearrange it, and give any channel its own color and icon.
-- **Per-app routing:** drag any app into a channel. Each channel has its own volume, mute and output device. New
-  apps and games open in Game by default, and you can change that.
+- **Per-app routing:** drag any app into a channel. Each channel has its own volume, mute and output device.
+- **Automatic sorting:** the first time an app plays sound, games go to Game and common chat, music and video apps go
+  to their channels. Anything else opens in your default channel. An app you move stays put, and you can turn sorting
+  off. Apps using your microphone show on Mic and follow its device.
 - **Game / Chat balance:** one slider between the two channels, in the mixer or on a hotkey.
 - **Global hotkeys** for mic mute, volumes and balance that work while a game has focus.
 - **Volume safety:** a cap per channel, and big increases fade in instead of jumping.
@@ -49,7 +51,8 @@ them. Volume and mute still work either way.
 
 LiteMixer asks GitHub once a day whether a newer release exists, and you can turn that off in Settings. The request
 goes only to GitHub and includes nothing about you or your audio; as with any web request, GitHub sees your IP address.
-Nothing installs until you agree. Before running an update, LiteMixer checks that Windows trusts the signature, that
+A new version shows what's in it in a small window, held back during fullscreen games, and nothing installs until you
+agree. Before running an update, LiteMixer checks that Windows trusts the signature, that
 the publisher is Vantage Enterprises, LLC, and that the version matches the release.
 
 Settings live in `%APPDATA%\LiteMixer\settings.json`.

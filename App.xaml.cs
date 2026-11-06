@@ -19,6 +19,8 @@ public partial class App : Application
     TrayIcon? _tray;
     HotkeyManager? _hotkeys;
     System.Windows.Threading.DispatcherTimer? _updateTimer;
+    System.Windows.Threading.DispatcherTimer? _updatePromptTimer;
+    UpdateWindow? _updateWindow;
     MainWindow? _main;
     CompactWindow? _compact;
     SettingsWindow? _settingsWindow;
@@ -127,7 +129,6 @@ public partial class App : Application
         SessionEnding += (_, _) => Model.SaveNow();
 
         Updater.CleanUp();
-        _tray.BalloonClicked += () => _ = InstallUpdateAsync();
         // First look shortly after startup so it never slows boot, then once a day.
         _updateTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         _updateTimer.Tick += async (_, _) =>
@@ -225,29 +226,75 @@ public partial class App : Application
 
     // ---- Updates ----
 
-    public async Task CheckForUpdatesAsync()
+    public async Task CheckForUpdatesAsync(bool userAsked = false)
     {
         if (!await Updater.CheckAsync() || Updater.Available is not { } release) return;
-        var version = Updater.Display(release.Version);
-        if (Model.Settings.LastAnnouncedVersion == version) return;
-        Model.Settings.LastAnnouncedVersion = version;
-        Model.QueueSave();
-        _tray?.ShowBalloon($"LiteMixer {version} is available", "Click to see what's new and update.");
+        if (userAsked)
+        {
+            ShowUpdatePrompt(userAsked: true);
+            return;
+        }
+        if (!UpdateWindow.ShouldOffer(Model.Settings.LastAnnouncedVersion, Updater.Display(release.Version), userAsked: false)) return;
+
+        // Waits out fullscreen games, and steps aside if one starts while the window is waiting for an answer.
+        _updatePromptTimer ??= NewUpdatePromptTimer();
+        _updatePromptTimer.Start();
+        OfferUpdateWhenFree();
     }
 
-    /// <summary>Asks first, then downloads, verifies and hands over to the installer, which reopens the app.</summary>
-    public async Task InstallUpdateAsync()
+    System.Windows.Threading.DispatcherTimer NewUpdatePromptTimer()
     {
-        if (Updater.Available is not { } release || Updater.IsBusy) return;
-        ShowMain();
+        var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMinutes(1) };
+        timer.Tick += (_, _) => OfferUpdateWhenFree();
+        return timer;
+    }
+
+    void OfferUpdateWhenFree()
+    {
+        bool busy = UpdateWindow.IsUserBusy();
+        if (_updateWindow != null)
+        {
+            if (busy) _updateWindow.Hide();
+            else if (!_updateWindow.IsVisible) _updateWindow.Show();
+            return;
+        }
+        if (!busy) ShowUpdatePrompt(userAsked: false);
+    }
+
+    /// <summary>Shows what's new and asks. Only a request from the user takes the keyboard.</summary>
+    public void ShowUpdatePrompt(bool userAsked)
+    {
+        if (Updater.Available is not { } release || Updater.IsBusy)
+        {
+            _updatePromptTimer?.Stop();
+            return;
+        }
+        if (_updateWindow != null)
+        {
+            if (!userAsked) return;
+            _updateWindow.Show();
+            _updateWindow.Activate();
+            return;
+        }
 
         var version = Updater.Display(release.Version);
-        var notes = release.Notes.Length > 600 ? release.Notes[..600] + "..." : release.Notes;
-        var message = $"You have version {Updater.CurrentText}."
-                      + (notes.Length > 0 ? $"\n\n{notes}" : "")
-                      + "\n\nLiteMixer closes briefly while it updates. Your audio keeps playing and your settings stay.";
-        if (!PromptWindow.Confirm(_main, $"Update to LiteMixer {version}", message, "Update now")) return;
+        Model.Settings.LastAnnouncedVersion = version;
+        Model.QueueSave();
 
+        _updateWindow = new UpdateWindow(version, Updater.CurrentText, release.Notes) { ShowActivated = userAsked };
+        _updateWindow.Accepted += () => _ = DownloadAndInstallAsync(release);
+        _updateWindow.Closed += (_, _) =>
+        {
+            _updateWindow = null;
+            _updatePromptTimer?.Stop();
+        };
+        _updateWindow.Show();
+    }
+
+    /// <summary>Downloads, verifies and hands over to the installer, which reopens the app.</summary>
+    async Task DownloadAndInstallAsync(UpdateRelease release)
+    {
+        ShowMain();
         try
         {
             var installer = await Updater.DownloadVerifiedAsync(release);
@@ -348,7 +395,7 @@ public partial class App : Application
         var menu = new ContextMenu();
         menu.Items.Add(Menus.Item("Open LiteMixer", ShowMain));
         if (Updater.Available is { } release)
-            menu.Items.Add(Menus.Item($"Update to {Updater.Display(release.Version)}...", () => _ = InstallUpdateAsync()));
+            menu.Items.Add(Menus.Item($"Update to {Updater.Display(release.Version)}...", () => ShowUpdatePrompt(userAsked: true)));
         menu.Items.Add(Menus.Item(Model.Mic.Muted ? "Unmute mic" : "Mute mic", Model.ToggleMicMute));
         menu.Items.Add(new Separator());
         AddMixerItems(menu);

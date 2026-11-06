@@ -35,6 +35,9 @@ public sealed class MixerModel : ObservableObject, IDisposable
     readonly List<ChannelVM> _cappable;
     readonly Dictionary<string, ChannelVM> _byId;
     readonly HashSet<string> _knownSessions = new();
+    // App key to the channel id sorting picked. Rebuilt each run, so better rules apply to apps the user hasn't placed.
+    readonly Dictionary<string, string> _sorted = new();
+    readonly HashSet<uint> _micFollowed = new();
     readonly Dictionary<uint, string> _routed = new();
     // The level actually applied to sessions; trails the fader while a fade-in ramp runs.
     readonly Dictionary<ChannelVM, double> _applied = new();
@@ -46,7 +49,6 @@ public sealed class MixerModel : ObservableObject, IDisposable
     DateTime _lastPoll;
     DateTime _lastTalk;
     bool _micRestorePending;
-    bool _masterTouched;
     bool? _lastMicMuted;
     double _balance;
     double _duck = 1;
@@ -178,12 +180,11 @@ public sealed class MixerModel : ObservableObject, IDisposable
 
     // ---- Public actions (UI) ----
 
-    /// <summary>Moves an app to an output channel; passing Master drops the explicit choice so it follows the default channel.</summary>
+    /// <summary>Moves an app to an output channel and remembers that choice. Master and Mic can't hold apps.</summary>
     public void Assign(string key, ChannelVM target)
     {
-        if (target.Kind == ChannelKind.Mic) return;
-        if (target.Kind == ChannelKind.Master) _s.Assignments.Remove(key);
-        else _s.Assignments[key] = target.Id;
+        if (target.Kind != ChannelKind.Output) return;
+        _s.Assignments[key] = target.Id;
 
         foreach (var session in _sessions.Where(s => s.Key == key))
         {
@@ -194,22 +195,63 @@ public sealed class MixerModel : ObservableObject, IDisposable
         QueueSave();
     }
 
-    /// <summary>Sends every app pinned to this channel back to the default channel.</summary>
+    /// <summary>Moves every app in this channel to the default channel, and remembers that, so sorting doesn't send them back.</summary>
     public void UnassignChannel(ChannelVM channel)
     {
-        foreach (var key in _s.Assignments.Where(a => a.Value == channel.Id).Select(a => a.Key).ToList())
-            Assign(key, Master);
+        var target = DefaultChannel;
+        if (channel == target) return;
+        var keys = _s.Assignments.Where(a => a.Value == channel.Id).Select(a => a.Key)
+            .Concat(_sessions.Where(s => ChannelFor(s.Key) == channel).Select(s => s.Key))
+            .Distinct()
+            .ToList();
+        foreach (var key in keys) Assign(key, target);
     }
 
-    public ChannelVM DefaultChannel => DefaultChannelOrNull ?? Game;
-
-    ChannelVM? DefaultChannelOrNull =>
-        _byId.TryGetValue(_s.DefaultChannel, out var channel) && channel.Kind == ChannelKind.Output ? channel : null;
+    /// <summary>Always a real output channel. A missing or invalid saved default means Game.</summary>
+    public ChannelVM DefaultChannel =>
+        _byId.TryGetValue(_s.DefaultChannel ?? "", out var channel) && channel.Kind == ChannelKind.Output ? channel : Game;
 
     public void SetDefaultChannel(ChannelVM channel)
     {
         if (channel.Kind != ChannelKind.Output) return;
         _s.DefaultChannel = channel.Id;
+        ReapplyUnplacedApps();
+        QueueSave();
+    }
+
+    public bool AutoSortApps
+    {
+        get => _s.AutoSortApps;
+        set
+        {
+            if (_s.AutoSortApps == value) return;
+            _s.AutoSortApps = value;
+            if (value)
+            {
+                foreach (var session in _sessions) SortApp(session.Key, session.Path);
+                _micFollowed.Clear();
+            }
+            ReapplyUnplacedApps();
+            OnPropertyChanged();
+            QueueSave();
+        }
+    }
+
+    /// <summary>Remembers where a new app belongs. Apps the user placed are never looked at, and the answer isn't saved, so it stays a suggestion.</summary>
+    internal void SortApp(string key, string? path)
+    {
+        if (!_s.AutoSortApps || key.StartsWith('#') || _s.Assignments.ContainsKey(key) || _sorted.ContainsKey(key)) return;
+        if (AppSorter.Suggest(key, path) is { } channelId) _sorted[key] = channelId;
+    }
+
+    /// <summary>
+    /// Whether to send an app that's using a microphone to the Mic channel's device, by clearing any input device
+    /// Windows has pinned for it. Once per run of each app, so a choice made afterwards isn't fought over.
+    /// </summary>
+    internal bool ShouldFollowMic(uint pid) => _s.AutoSortApps && pid != 0 && _micFollowed.Add(pid);
+
+    void ReapplyUnplacedApps()
+    {
         foreach (var session in _sessions.Where(s => !_s.Assignments.ContainsKey(s.Key)))
         {
             ApplyVolume(session);
@@ -217,7 +259,6 @@ public sealed class MixerModel : ObservableObject, IDisposable
         }
         UpdateApps();
         UpdateDefaultHint();
-        QueueSave();
     }
 
     public void ResetAssignments()
@@ -235,7 +276,9 @@ public sealed class MixerModel : ObservableObject, IDisposable
     }
 
     void UpdateDefaultHint() =>
-        Master.EmptyHint = $"New apps and games open in {DefaultChannel.Title}.\nDrag an app to another channel to move it.";
+        Master.EmptyHint = (_s.AutoSortApps
+            ? $"New apps sort themselves. Anything else opens in {DefaultChannel.Title}."
+            : $"New apps and games open in {DefaultChannel.Title}.") + "\nDrag an app to another channel to move it.";
 
     public ChannelVM? ChannelOfApp(string key) => ChannelFor(key);
 
@@ -533,13 +576,21 @@ public sealed class MixerModel : ObservableObject, IDisposable
         foreach (var session in sessions)
         {
             seen.Add(session.InstanceId);
-            if (_knownSessions.Add(session.InstanceId)) ApplyVolume(session);
+            if (_knownSessions.Add(session.InstanceId))
+            {
+                SortApp(session.Key, session.Path);
+                ApplyVolume(session);
+            }
             Route(session, force: false);
         }
         _knownSessions.IntersectWith(seen);
 
         var mics = _engine.GetSessions(capture, includeSystemSounds: false);
+        foreach (var mic in mics)
+            if (ShouldFollowMic(mic.Pid) && AppRouting.GetAppDevice(mic.Pid, EDataFlow.Capture) != null)
+                AppRouting.SetAppDevice(mic.Pid, null, EDataFlow.Capture);
         var livePids = sessions.Select(s => s.Pid).Concat(mics.Select(s => s.Pid)).ToHashSet();
+        _micFollowed.IntersectWith(livePids);
         foreach (var pid in _routed.Keys.Where(p => !livePids.Contains(p)).ToList()) _routed.Remove(pid);
         _engine.PruneProcessCache(livePids);
 
@@ -602,7 +653,6 @@ public sealed class MixerModel : ObservableObject, IDisposable
         {
             case ChannelKind.Master:
                 _s.MasterVolume = channel.Volume;
-                _masterTouched = true;
                 StartLevel(channel);
                 break;
             case ChannelKind.Output:
@@ -623,7 +673,6 @@ public sealed class MixerModel : ObservableObject, IDisposable
         {
             case ChannelKind.Master:
                 _s.MasterMuted = channel.Muted;
-                _masterTouched = true;
                 foreach (var session in _sessions) ApplyVolume(session);
                 break;
             case ChannelKind.Output:
@@ -706,15 +755,8 @@ public sealed class MixerModel : ObservableObject, IDisposable
     void ApplyVolume(SessionInfo session)
     {
         var channel = ChannelFor(session.Key);
-        // Leave unassigned apps at whatever level Windows has until Master is actually moved off 100%.
-        if (channel == null && Master.Volume >= 100 && !Master.Muted && !_masterTouched) return;
-        double level = _applied[Master] / 100.0;
-        bool mute = Master.Muted;
-        if (channel != null)
-        {
-            level *= _applied[channel] / 100.0 * BalanceFactor(channel) * DuckFactor(channel);
-            mute |= channel.Muted;
-        }
+        double level = _applied[Master] / 100.0 * _applied[channel] / 100.0 * BalanceFactor(channel) * DuckFactor(channel);
+        bool mute = Master.Muted || channel.Muted;
         level *= AppVolume(session.Key) / 100.0;
         AudioEngine.SetSessionVolume(session, (float)level, mute);
     }
@@ -732,18 +774,30 @@ public sealed class MixerModel : ObservableObject, IDisposable
     {
         if (session.IsSystem || session.Pid == 0) return;
         var channel = ChannelFor(session.Key);
-        if (channel == null) return;
-
         var want = OutputDeviceFor(channel) ?? "";
         if (!force && _routed.TryGetValue(session.Pid, out var current) && current == want) return;
         _routed[session.Pid] = want;
         AppRouting.SetAppDevice(session.Pid, want.Length == 0 ? null : want, EDataFlow.Render);
     }
 
-    ChannelVM? ChannelFor(string key) =>
-        _s.Assignments.TryGetValue(key, out var id) && _byId.TryGetValue(id, out var channel) && channel.Kind == ChannelKind.Output
-            ? channel
-            : DefaultChannelOrNull;
+    /// <summary>Where an app plays: the user's choice, then sorting, then the default. Always an output channel, so never Master or Mic.</summary>
+    ChannelVM ChannelFor(string key)
+    {
+        if (_s.Assignments.TryGetValue(key, out var chosen) && IsOutput(chosen, out var channel)) return channel;
+        if (_s.AutoSortApps && _sorted.TryGetValue(key, out var sorted) && IsOutput(sorted, out channel)) return channel;
+        return DefaultChannel;
+    }
+
+    bool IsOutput(string id, out ChannelVM channel)
+    {
+        if (_byId.TryGetValue(id, out var found) && found.Kind == ChannelKind.Output)
+        {
+            channel = found;
+            return true;
+        }
+        channel = DefaultChannel;
+        return false;
+    }
 
     ChannelSettings SettingsFor(ChannelVM channel)
     {
@@ -780,7 +834,7 @@ public sealed class MixerModel : ObservableObject, IDisposable
         var seen = new HashSet<string>();
         foreach (var session in _sessions)
             if (!hidden.Contains(session.Key) && seen.Add(session.Key))
-                buckets[ChannelFor(session.Key) ?? Master].Add(
+                buckets[ChannelFor(session.Key)].Add(
                     new AppChip(session.Key, session.Name, true, AppVolume(session.Key), Icons.ForExe(session.Path)));
 
         seen.Clear();
@@ -843,12 +897,8 @@ public sealed class MixerModel : ObservableObject, IDisposable
         {
             double peak = AudioEngine.GetSessionPeak(session);
             if (peak <= 0) continue;
-            var channel = ChannelFor(session.Key);
-            if (channel != null)
-            {
-                int index = IndexOf(channel);
-                peaks[index] = Math.Max(peaks[index], peak);
-            }
+            int index = IndexOf(ChannelFor(session.Key));
+            peaks[index] = Math.Max(peaks[index], peak);
             peaks[0] = Math.Max(peaks[0], peak);
         }
         peaks[Channels.Count - 1] = _engine.GetEndpointPeak(DefaultInputId);

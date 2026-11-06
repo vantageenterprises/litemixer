@@ -48,6 +48,7 @@ internal static class UiCheck
     public static void Run(App app, string folder)
     {
         SettingsStore.ReadOnly = true;
+        AppRouting.ReadOnly = true;
         Directory.CreateDirectory(folder);
         var report = new StringBuilder();
         void Check(string name, bool ok) => report.AppendLine($"{(ok ? "PASS" : "FAIL")}  {name}");
@@ -160,9 +161,158 @@ internal static class UiCheck
         Check("Video and Music keep their saved ids", model.Media.Id == "media" && model.Aux.Id == "aux");
         CheckMovingChannels(app, Check, folder);
         CheckChannelLooks(app, Check, folder);
+        CheckAppSorting(app, Check);
+        CheckUpdatePrompt(Check, folder);
 
         File.WriteAllText(Path.Combine(folder, "report.txt"), report.ToString());
         Environment.Exit(report.ToString().Contains("FAIL") ? 1 : 0);
+    }
+
+    static void CheckAppSorting(App app, Action<string, bool> check)
+    {
+        // The rules, with fixed lists so the result doesn't depend on this PC.
+        string[] folders = [@"H:\Stuff\MyEpicGame", @"H:\Stuff\MyGogGame\"];
+        string[] windows = [@"E:\Blizzard\Wow.exe", @"D:\Fortnite\Fortnite.exe", @"C:\Runtime\bin\javaw.exe", "\"F:\\Quoted\\Quoted.exe\""];
+        string? Sort(string key, string? path) => AppSorter.Suggest(key, path, () => folders, () => windows);
+
+        check("chat apps go to Chat", Sort("discord", @"C:\Users\x\AppData\Local\Discord\app-1\Discord.exe") == "chat");
+        check("music apps go to Music", Sort("spotify", @"C:\Apps\Spotify.exe") == "aux");
+        check("video apps go to Video", Sort("vlc", @"C:\Program Files\VideoLAN\VLC\vlc.exe") == "media");
+        check("browsers go to Video", Sort("chrome", null) == "media" && Sort("msedge", null) == "media" && Sort("firefox", null) == "media");
+        check("game launchers go to Game", Sort("steam", @"C:\Steam\steam.exe") == "game" && Sort("steamwebhelper", null) == "game");
+        check("a known app wins over the folder it's in", Sort("chrome", @"D:\SteamLibrary\steamapps\common\Odd\chrome.exe") == "media");
+
+        check("Steam games on any drive", Sort("odd", @"Z:\Lib\SteamLibrary\steamapps\common\Odd Game\bin\odd.exe") == "game");
+        check("folder matching ignores case and slash style", Sort("odd", "z:/LIB/STEAMAPPS/COMMON/Odd/odd.exe") == "game");
+        check("Epic games", Sort("odd", @"D:\Epic Games\Odd\Binaries\odd.exe") == "game");
+        check("Epic's launcher and engine aren't games", Sort("helper", @"C:\Program Files\Epic Games\Launcher\helper.exe") == null && Sort("editor", @"C:\Program Files\Epic Games\UE_5.4\Engine\editor.exe") == null);
+        check("GOG games", Sort("odd", @"D:\GOG Games\Odd\odd.exe") == "game" && Sort("odd", @"C:\Program Files (x86)\GOG Galaxy\Games\Odd\odd.exe") == "game");
+        check("Epic or GOG games installed elsewhere", Sort("odd", @"H:\Stuff\MyEpicGame\bin\odd.exe") == "game" && Sort("odd", @"h:\stuff\mygoggame\odd.exe") == "game");
+        check("a folder only counts as a whole name", Sort("odd", @"H:\Stuff\MyEpicGameTools\odd.exe") == null);
+        check("Steam's own folder isn't a library", Sort("odd", @"C:\Program Files (x86)\Steam\bin\odd.exe") == null);
+
+        check("games Windows recognizes", Sort("wow", @"E:\Blizzard\Wow.exe") == "game" && Sort("fortnite", @"d:\fortnite\FORTNITE.EXE") == "game");
+        check("a quoted entry in the Windows list still matches", Sort("quoted", @"F:\Quoted\Quoted.exe") == "game");
+        check("same exe name in another folder isn't that game", Sort("wow", @"C:\Tools\wow.exe") == null);
+        check("a game hiding its path matches by name", Sort("wow", null) == "game");
+        check("generic runtimes aren't games, even when listed", Sort("javaw", @"C:\Runtime\bin\javaw.exe") == null && Sort("javaw", null) == null);
+        check("unknown apps get no suggestion", Sort("somethingelse", @"C:\Program Files\Other\somethingelse.exe") == null && Sort("somethingelse", null) == null);
+
+        // Reading the real lists must never throw, and only reads.
+        check($"reads Windows' game list ({AppSorter.ReadWindowsGames().Count} games) and install folders ({AppSorter.ReadGameFolders().Count})", true);
+
+        // In the mixer.
+        var settings = new AppSettings();
+        settings.Channels["game"] = new ChannelSettings { Volume = 40 };
+        var model = new MixerModel(settings);
+        app.SetModelForCheck(model);
+        int audioCalls = 0;
+        foreach (var channel in model.Channels)
+        {
+            channel.VolumeChanged = _ => audioCalls++;
+            channel.MutedChanged = _ => audioCalls++;
+        }
+
+        model.SortApp("discord", null);
+        model.SortApp("spotify", null);
+        model.SortApp("vlc", null);
+        model.SortApp("odd", @"D:\SteamLibrary\steamapps\common\Odd\odd.exe");
+        model.SortApp("mystery", null);
+        check("sorted apps land in their channels", model.ChannelOfApp("discord") == model.Chat && model.ChannelOfApp("spotify") == model.Aux && model.ChannelOfApp("vlc") == model.Media && model.ChannelOfApp("odd") == model.Game);
+        check("anything else opens in the default", model.ChannelOfApp("mystery") == model.Game);
+        model.SetDefaultChannel(model.Media);
+        check("the default only catches what sorting didn't", model.ChannelOfApp("mystery") == model.Media && model.ChannelOfApp("odd") == model.Game && model.ChannelOfApp("discord") == model.Chat);
+        model.SetDefaultChannel(model.Game);
+        check("sorting isn't saved as the user's choice", settings.Assignments.Count == 0);
+
+        model.Assign("discord", model.Media);
+        check("an app you place stays placed", model.ChannelOfApp("discord") == model.Media);
+        model.SortApp("discord", null);
+        check("sorting never overrides your choice", model.ChannelOfApp("discord") == model.Media && settings.Assignments["discord"] == "media");
+
+        settings.Assignments["spotify"] = "chat";
+        model.UnassignChannel(model.Chat);
+        check("moving a channel's apps to the default sticks", model.ChannelOfApp("spotify") == model.Game && settings.Assignments["spotify"] == "game");
+
+        model.ResetAssignments();
+        check("resetting returns apps to sorted channels", settings.Assignments.Count == 0 && model.ChannelOfApp("discord") == model.Chat && model.ChannelOfApp("spotify") == model.Aux);
+
+        model.AutoSortApps = false;
+        check("with sorting off, everything uses the default", model.ChannelOfApp("discord") == model.Game && model.ChannelOfApp("spotify") == model.Game && model.Master.EmptyHint.StartsWith("New apps and games open"));
+        model.SortApp("telegram", null);
+        check("with sorting off, nothing new is sorted", model.ChannelOfApp("telegram") == model.Game);
+        model.AutoSortApps = true;
+        check("turning sorting back on restores it", model.ChannelOfApp("discord") == model.Chat && model.Master.EmptyHint.StartsWith("New apps sort themselves"));
+
+        var turnedOff = new MixerModel(new AppSettings { AutoSortApps = false });
+        check("the off switch survives a restart", !turnedOff.AutoSortApps && turnedOff.Master.EmptyHint.StartsWith("New apps and games open"));
+        check("older settings turn sorting on", new AppSettings().AutoSortApps && System.Text.Json.JsonSerializer.Deserialize<AppSettings>("{}")!.AutoSortApps);
+
+        // Nothing may ever land in Master, or in Mic, whatever the settings say.
+        bool neverMasterOrMic = true;
+        foreach (var badDefault in new[] { "master", "mic", "gone", "", null! })
+        {
+            var bad = new AppSettings { DefaultChannel = badDefault };
+            bad.Assignments["a"] = "master";
+            bad.Assignments["b"] = "mic";
+            bad.Assignments["c"] = "gone";
+            var damaged = new MixerModel(bad);
+            foreach (var key in new[] { "a", "b", "c", "unassigned", "#system" })
+                neverMasterOrMic &= damaged.ChannelOfApp(key) == damaged.Game;
+            neverMasterOrMic &= damaged.DefaultChannel == damaged.Game;
+        }
+        check("bad settings can't put an app in Master or Mic", neverMasterOrMic);
+
+        model.Assign("x", model.Master);
+        model.Assign("x", model.Mic);
+        check("apps can't be moved into Master or Mic", !settings.Assignments.ContainsKey("x") && model.ChannelOfApp("x") == model.Game);
+        model.SetDefaultChannel(model.Master);
+        model.SetDefaultChannel(model.Mic);
+        check("Master and Mic can't be the default", model.DefaultChannel == model.Game && settings.DefaultChannel == "game");
+        check("every app resolves to an output channel", new[] { "discord", "spotify", "vlc", "odd", "mystery", "x", "#system" }.All(k => model.ChannelOfApp(k)?.Kind == ChannelKind.Output));
+        check("Master's app list stays empty", model.Master.Apps.Count == 0);
+        check("sorting never touches channel levels", audioCalls == 0);
+
+        // Apps using the microphone.
+        check("an app using the mic is sent to the Mic channel's device", model.ShouldFollowMic(4242));
+        check("only once per run of that app", !model.ShouldFollowMic(4242));
+        check("process 0 is left alone", !model.ShouldFollowMic(0));
+        model.AutoSortApps = false;
+        check("with sorting off, mic apps are left alone", !model.ShouldFollowMic(5151));
+        model.AutoSortApps = true;
+        check("turning sorting back on applies again", model.ShouldFollowMic(4242) && model.ShouldFollowMic(5151));
+    }
+
+    static void CheckUpdatePrompt(Action<string, bool> check, string folder)
+    {
+        check("a new version offers itself", UpdateWindow.ShouldOffer("1.1", "1.2", userAsked: false) && UpdateWindow.ShouldOffer(null, "1.2", userAsked: false));
+        check("each version offers itself only once", !UpdateWindow.ShouldOffer("1.2", "1.2", userAsked: false));
+        check("asking always shows it", UpdateWindow.ShouldOffer("1.2", "1.2", userAsked: true));
+        check("waits during fullscreen games and presentations", UpdateWindow.IsBusyState(2) && UpdateWindow.IsBusyState(3) && UpdateWindow.IsBusyState(4));
+        check("waits while the screen is locked", UpdateWindow.IsBusyState(1));
+        check("shows when the desktop is free", !UpdateWindow.IsBusyState(5) && !UpdateWindow.IsBusyState(6) && !UpdateWindow.IsBusyState(7));
+
+        var window = new UpdateWindow("1.2", "1.1", "Apps now sort themselves. Games go to Game, and common chat, music and video apps go to their channels.\n\nUpdates now show up here instead of as a Windows notification.");
+        check("popping up doesn't take the keyboard", !window.ShowActivated);
+        check("it stays above other windows", window.Topmost);
+        check("the notes show", window.Notes.Text.StartsWith("Apps now sort"));
+        Offscreen(window);
+        Pump();
+        Shot(window, folder, "10-update");
+        int accepted = 0;
+        window.Accepted += () => accepted++;
+        window.Close();
+        check("closing is not agreeing", accepted == 0);
+
+        var agreed = Offscreen(new UpdateWindow("1.2", "1.1", ""));
+        agreed.Accepted += () => accepted++;
+        check("no notes means no empty box", agreed.NotesBox.Visibility == Visibility.Collapsed);
+        agreed.Accept();
+        check("Update now agrees once, and closes", accepted == 1 && !agreed.IsVisible);
+
+        var longNotes = new UpdateWindow("1.2", "1.1", new string('x', 900));
+        check("very long notes are cut off", longNotes.Notes.Text.Length == 603 && longNotes.Notes.Text.EndsWith("..."));
+        longNotes.Close();
     }
 
     static void CheckChannelLooks(App app, Action<string, bool> check, string folder)
@@ -400,6 +550,7 @@ internal static class UiCheck
     public static void Screenshots(App app, string folder)
     {
         SettingsStore.ReadOnly = true;
+        AppRouting.ReadOnly = true;
         Directory.CreateDirectory(folder);
 
         // Levels load from sample settings: the fader setters are wired to the live volume logic.

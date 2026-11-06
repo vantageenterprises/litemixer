@@ -32,7 +32,7 @@ public partial class MainWindow : Window
         Closed += (_, _) => model.ScrollChannels.CollectionChanged -= onOrderChanged;
     }
 
-    void UpdateBanner_Click(object sender, RoutedEventArgs e) => _ = App.Current.InstallUpdateAsync();
+    void UpdateBanner_Click(object sender, RoutedEventArgs e) => App.Current.ShowUpdatePrompt(userAsked: true);
 
     protected override void OnSourceInitialized(EventArgs e)
     {

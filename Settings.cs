@@ -33,6 +33,8 @@ public sealed class AppSettings
     public Dictionary<string, string> Assignments { get; set; } = new();
     /// <summary>Channel for every app without an explicit assignment (games, launchers, anything new).</summary>
     public string DefaultChannel { get; set; } = "game";
+    /// <summary>Sends games and well-known apps to the channel they belong in, the first time they play sound.</summary>
+    public bool AutoSortApps { get; set; } = true;
     public bool StartWithWindows { get; set; } = true;
     public bool CheckForUpdates { get; set; } = true;
     /// <summary>Version the tray already announced, so each new version pops up only once.</summary>
