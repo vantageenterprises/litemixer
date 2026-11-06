@@ -69,8 +69,8 @@ To record, use the same setup. The stream mix goes to whatever your app is captu
   your headset or speakers.
 - **Streaming apps are left out of the mix,** so their own sound can't feed back into your stream. Windows system sounds
   aren't included either.
-- **Audio sync:** the mix arrives slightly behind your screen. If you notice it, adjust the sync offset in your
-  streaming app.
+- **Audio sync:** the mix arrives about 140 ms behind your screen, measured through VB-Cable. If you notice it, delay
+  your video source to match, since most streaming apps can't move audio earlier.
 - **Windows version:** this needs Windows 10 version 2004 or newer.
 - **Muted channels while the stream mix is on:** Windows captures nothing from a truly muted app, so a channel that's
   silent for you sits at -100 dB instead, far below hearing. Windows' Volume mixer shows it as 0% rather than muted.
