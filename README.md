@@ -60,6 +60,36 @@ Twitch and YouTube get their audio from those apps, so there's nothing to set up
    **CABLE Output**. In OBS that's **Sources > + > Audio Input Capture**.
 5. Turn off your streaming app's **Desktop Audio**, or your audience hears everything twice.
 
+**OBS setup, with pictures** (click a step to open it)
+
+<details>
+<summary>1. Add an Audio Input Capture source</summary>
+<br>
+
+In **Sources**, click **+**, choose **Audio Input Capture**, then **Add a new Audio Input Capture**.
+
+<img src="docs/screenshots/obs-add-source.png" width="640" alt="OBS Add Source window with Audio Input Capture selected and the Add a new Audio Input Capture button highlighted">
+
+</details>
+
+<details>
+<summary>2. Choose CABLE Output as its device</summary>
+<br>
+
+<img src="docs/screenshots/obs-choose-cable.png" width="520" alt="OBS Audio Input Capture properties with CABLE Output selected in the Device list">
+
+</details>
+
+<details>
+<summary>3. Turn off Desktop Audio and choose your mic</summary>
+<br>
+
+In **Settings > Audio**, set **Desktop Audio** and **Desktop Audio 2** to **Disabled**, and set **Mic/Auxiliary Audio** to your microphone.
+
+<img src="docs/screenshots/obs-audio-settings.png" width="560" alt="OBS audio settings with Desktop Audio and Desktop Audio 2 disabled and Mic/Auxiliary Audio set to a headset microphone">
+
+</details>
+
 To record, use the same setup. The stream mix goes to whatever your app is capturing, so a recording gets the same levels.
 
 **Good to know**
