@@ -16,8 +16,9 @@ with no drivers and no account.
 - **Global hotkeys** for mic mute, volumes and balance that work while a game has focus.
 - **Volume safety:** a cap per channel, and big increases fade in instead of jumping.
 - **Auto-duck** (off by default): lowers Game and Media while someone talks in Chat.
-- **Per-app volume** inside a channel, **hidden apps**, **profiles** for one-click setups, and an always-on-top
-  **compact mixer**.
+- **Compact mixer:** a small always-on-top window with every fader, mute and the Game / Chat balance, so you can adjust
+  levels over a game. Open it with Ctrl+Alt+K or from the menu; it remembers where you put it.
+- **Per-app volume** inside a channel, **hidden apps**, and **profiles** for one-click setups.
 - **Starts with Windows** in the tray and restores your devices, levels and assignments.
 
 ## Screenshots
