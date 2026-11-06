@@ -9,7 +9,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>LiteMixer</AssemblyName>
     <RootNamespace>LiteMixer</RootNamespace>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <Product>LiteMixer</Product>
     <Company>Vantage Enterprises, LLC</Company>
     <Copyright>Copyright (c) 2026 Vantage Enterprises, LLC</Copyright>
