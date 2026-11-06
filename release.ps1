@@ -13,6 +13,13 @@ param(
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
+# Git reports warnings and progress on stderr, which PowerShell 5.1 can mistake for a failure. Exit codes decide instead.
+function Invoke-Tool([string]$Tool, [string[]]$Arguments) {
+    $ErrorActionPreference = "Continue"
+    & $Tool @Arguments 2>&1 | ForEach-Object { "$_" }
+    if ($LASTEXITCODE -ne 0) { throw "$Tool $($Arguments[0]) failed ($LASTEXITCODE)" }
+}
+
 if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "Version must look like 1.2.0" }
 if (-not $Notes -and -not $NotesFile) { throw "Give -Notes or -NotesFile; they are shown to users in the update prompt." }
 if ((git branch --show-current) -ne "main") { throw "Release from the main branch." }
@@ -29,8 +36,8 @@ $text = [IO.File]::ReadAllText((Resolve-Path $csproj))
 $updated = [regex]::Replace($text, '<Version>[^<]+</Version>', "<Version>$Version</Version>")
 if ($updated -ne $text) {
     [IO.File]::WriteAllText((Resolve-Path $csproj), $updated)
-    git add $csproj
-    git commit -q -m "chore: release $Version"
+    Invoke-Tool git @("add", $csproj)
+    Invoke-Tool git @("commit", "-q", "-m", "chore: release $Version")
 }
 
 & "$PSScriptRoot\build-installer.ps1"
@@ -41,9 +48,8 @@ $setup = Join-Path $PSScriptRoot "dist\LiteMixer_$short.exe"
 $signature = Get-AuthenticodeSignature $setup
 if ($signature.Status -ne "Valid") { throw "Refusing to publish: $setup signature is $($signature.Status). Updates only accept signed builds." }
 
-git tag $tag
-git push origin main $tag
-if ($LASTEXITCODE -ne 0) { throw "git push failed" }
+Invoke-Tool git @("tag", $tag)
+Invoke-Tool git @("push", "origin", "main", $tag)
 
 # The same file under a fixed name gives the README one link that always downloads the newest version:
 # releases/latest/download/LiteMixer-Setup.exe. The updater only takes names starting with "LiteMixer_", so it ignores this.
@@ -51,6 +57,5 @@ $stable = Join-Path $PSScriptRoot "dist\LiteMixer-Setup.exe"
 Copy-Item $setup $stable -Force
 
 $notesArgs = if ($NotesFile) { @("--notes-file", $NotesFile) } else { @("--notes", $Notes) }
-gh release create $tag $setup $stable --title "LiteMixer $short" --latest @notesArgs
-if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
+Invoke-Tool gh (@("release", "create", $tag, $setup, $stable, "--title", "LiteMixer $short", "--latest") + $notesArgs)
 Write-Output "Released LiteMixer $short"
