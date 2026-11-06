@@ -45,7 +45,12 @@ git tag $tag
 git push origin main $tag
 if ($LASTEXITCODE -ne 0) { throw "git push failed" }
 
+# The same file under a fixed name gives the README one link that always downloads the newest version:
+# releases/latest/download/LiteMixer-Setup.exe. The updater only takes names starting with "LiteMixer_", so it ignores this.
+$stable = Join-Path $PSScriptRoot "dist\LiteMixer-Setup.exe"
+Copy-Item $setup $stable -Force
+
 $notesArgs = if ($NotesFile) { @("--notes-file", $NotesFile) } else { @("--notes", $Notes) }
-gh release create $tag $setup --title "LiteMixer $short" --latest @notesArgs
+gh release create $tag $setup $stable --title "LiteMixer $short" --latest @notesArgs
 if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
 Write-Output "Released LiteMixer $short"

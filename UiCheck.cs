@@ -106,6 +106,8 @@ internal static class UiCheck
         Check("download from another GitHub repo refused", Updater.ParseRelease(Release("v1.2.0", "https://github.com/someone/litemixer/releases/download/v1.2.0/LiteMixer_1.2.exe")) == null);
         Check("nonsense tag ignored", Updater.ParseRelease(Release("latest", goodUrl)) == null);
         Check("release with no installer ignored", Updater.ParseRelease("""{"tag_name":"v1.2.0","assets":[]}""") == null);
+        var withStableLink = Updater.ParseRelease($$"""{"tag_name":"v1.2.0","assets":[{"name":"LiteMixer-Setup.exe","browser_download_url":"https://github.com/vantageenterprises/litemixer/releases/download/v1.2.0/LiteMixer-Setup.exe"},{"name":"LiteMixer_1.2.exe","browser_download_url":"{{goodUrl}}"}]}""");
+        Check("updater ignores the fixed-name download", withStableLink?.AssetUrl == goodUrl);
         Check("newer version offered", Updater.IsNewer(new Version(1, 0, 1), new Version(1, 0, 0)));
         Check("same version not offered", !Updater.IsNewer(new Version(1, 0, 0), new Version(1, 0, 0)));
         Check("older version not offered", !Updater.IsNewer(new Version(0, 9, 0), new Version(1, 0, 0)));
@@ -155,6 +157,86 @@ internal static class UiCheck
 
         File.WriteAllText(Path.Combine(folder, "report.txt"), report.ToString());
         Environment.Exit(report.ToString().Contains("FAIL") ? 1 : 0);
+    }
+
+    /// <summary>--screenshots: renders the README images from sample settings. Never starts the mixer.</summary>
+    public static void Screenshots(App app, string folder)
+    {
+        SettingsStore.ReadOnly = true;
+        Directory.CreateDirectory(folder);
+
+        // Levels load from sample settings: the fader setters are wired to the live volume logic.
+        MixerModel NewModel(params (string Id, string Name, string Color, double Volume)[] customs)
+        {
+            var settings = new AppSettings { DefaultChannel = "game" };
+            foreach (var (id, volume) in new[] { ("game", 65.0), ("chat", 85.0), ("media", 45.0), ("aux", 60.0) })
+                settings.Channels[id] = new ChannelSettings { Volume = volume };
+            foreach (var custom in customs)
+            {
+                settings.CustomChannels.Add(new CustomChannel { Id = custom.Id, Name = custom.Name, Color = custom.Color });
+                settings.Channels[custom.Id] = new ChannelSettings { Volume = custom.Volume };
+            }
+            var created = new MixerModel(settings);
+            app.SetModelForCheck(created);
+            return created;
+        }
+
+        void Fill(MixerModel model)
+        {
+            foreach (var channel in model.Channels)
+            {
+                channel.DeviceName = channel == model.Mic ? "Headset Microphone" : channel == model.Chat ? "Headset" : "Headphones";
+                string[] apps = channel == model.Game ? ["Racing Game", "Game Launcher"]
+                    : channel == model.Chat ? ["Voice Chat"]
+                    : channel == model.Media ? ["Web Browser", "Music Player"]
+                    : channel == model.Aux ? ["System Sounds"]
+                    : channel == model.Mic ? ["Voice Chat"]
+                    : channel.DisplayName == "Streaming" ? ["Stream Alerts"]
+                    : channel.DisplayName == "Podcast" ? ["Podcast Player"]
+                    : channel.DisplayName == "Recording" ? ["Recorder"]
+                    : [];
+                if (channel != model.Master)
+                    channel.SyncApps(apps.Select(name => new AppChip(name.ToLowerInvariant(), name, channel != model.Mic, 100, null)).ToList());
+                // The real meter is post-fader, so it always sits below the fader.
+                channel.Peak = apps.Length > 0 || channel == model.Master ? channel.Volume / 100.0 * 0.7 : 0;
+            }
+        }
+
+        var standard = NewModel();
+        var window = Offscreen(new MainWindow(standard));
+        Fill(standard);
+        Pump();
+        Shot(window, folder, "mixer");
+        Shot(Offscreen(new CompactWindow(standard)), folder, "compact");
+        var settingsWindow = Offscreen(new SettingsWindow(standard));
+        settingsWindow.Height = 1040;
+        Pump();
+        Shot(settingsWindow, folder, "settings");
+
+        var custom = NewModel(("custom-streaming", "Streaming", "#22D3EE", 70), ("custom-podcast", "Podcast", "#A3E635", 50), ("custom-recording", "Recording", "#FACC15", 35));
+        var customWindow = Offscreen(new MainWindow(custom));
+        Fill(custom);
+        Pump();
+        customWindow.ChannelScroll.ScrollToHorizontalOffset(customWindow.ChannelScroll.ScrollableWidth);
+        Pump();
+        Shot(customWindow, folder, "custom-channels");
+
+        Environment.Exit(0);
+    }
+
+    /// <summary>Saves a window's content at double resolution, without the unpainted title bar area.</summary>
+    static void Shot(Window window, string folder, string name)
+    {
+        const int scale = 2;
+        var content = (FrameworkElement)window.Content;
+        int width = (int)Math.Ceiling(content.ActualWidth + content.Margin.Left + content.Margin.Right) * scale;
+        int height = (int)Math.Ceiling(content.ActualHeight + content.Margin.Top + content.Margin.Bottom) * scale;
+        var bitmap = new RenderTargetBitmap(width, height, 96 * scale, 96 * scale, PixelFormats.Pbgra32);
+        bitmap.Render(window);
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        using var file = File.Create(Path.Combine(folder, name + ".png"));
+        encoder.Save(file);
     }
 
     static void SampleData(MixerModel model)

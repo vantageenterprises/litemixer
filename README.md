@@ -3,7 +3,9 @@
 A small, light-weight audio mixer for Windows 10 and 11. Channels, per-app routing, game and chat balance, and hotkeys,
 with no drivers and no account.
 
-**[Download the latest version](https://github.com/vantageenterprises/litemixer/releases/latest)**
+**[Download the latest version](https://github.com/vantageenterprises/litemixer/releases/latest/download/LiteMixer-Setup.exe)** ([all releases](https://github.com/vantageenterprises/litemixer/releases))
+
+![The LiteMixer window: Master, Game, Chat, Media, Aux and Mic channels, each with a fader, mute, output device and apps](docs/screenshots/mixer.png)
 
 ## What it does
 
@@ -17,6 +19,18 @@ with no drivers and no account.
 - **Per-app volume** inside a channel, **hidden apps**, **profiles** for one-click setups, and an always-on-top
   **compact mixer**.
 - **Starts with Windows** in the tray and restores your devices, levels and assignments.
+
+## Screenshots
+
+Add as many named channels as you like, and scroll or jump between them:
+
+![Custom channels named Streaming, Podcast and Recording in the mixer, with a horizontal scrollbar](docs/screenshots/custom-channels.png)
+
+| Compact mixer | Settings |
+| --- | --- |
+| <img src="docs/screenshots/compact.png" width="366" alt="The small always-on-top compact mixer"> | <img src="docs/screenshots/settings.png" width="420" alt="Settings: global hotkeys, volume caps and auto-duck"> |
+
+Apps and devices shown are sample names.
 
 ## How it works
 
@@ -70,6 +84,7 @@ installed; `installer/Pack` compresses the app into its payload, and the same ex
 Checks that change nothing real:
 
 - App: `LiteMixer.exe --ui-check <dir>` renders the windows offscreen and tests channel and updater logic.
+  `--screenshots <dir>` renders the images in `docs/screenshots` from sample data.
 - Installer: `--render <dir>` draws every screen, `--test-install <dir>` unpacks into that folder, and `--preview`
   opens the real window with simulated work.
 

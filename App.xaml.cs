@@ -49,6 +49,13 @@ public partial class App : Application
             return;
         }
 
+        int shots = Array.IndexOf(e.Args, "--screenshots");
+        if (shots >= 0 && shots + 1 < e.Args.Length)
+        {
+            UiCheck.Screenshots(this, e.Args[shots + 1]);
+            return;
+        }
+
         int check = Array.IndexOf(e.Args, "--ui-check");
         if (check >= 0 && check + 1 < e.Args.Length)
         {
