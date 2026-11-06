@@ -359,7 +359,7 @@ internal sealed class AudioEngine : IDisposable
         finally { Release(store); }
     }
 
-    static string? QueryProcessPath(uint pid)
+    internal static string? QueryProcessPath(uint pid)
     {
         var handle = OpenProcess(0x1000 /* PROCESS_QUERY_LIMITED_INFORMATION */, false, pid);
         if (handle == IntPtr.Zero) return null;

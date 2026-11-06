@@ -137,7 +137,7 @@
             <!-- Stream mix -->
             <TextBlock Text="STREAMING AND RECORDING" Style="{StaticResource Section}"/>
             <TextBlock Style="{StaticResource Hint}"
-                       Text="Sends a second mix with its own levels to a virtual cable, for OBS, Streamlabs, XSplit or any app that records audio. Your headset stays as your faders have it, and a channel you've muted can still reach the stream. Your mic isn't included: add it in your streaming app."/>
+                       Text="Sends a second mix with its own levels to a virtual cable, for OBS, Streamlabs, XSplit or any app that records audio. Your headset stays as your faders have it, and a channel you've muted can still reach the stream. Your mic isn't included: add it in your streaming app. While this is on, each channel in the main window has a second fader and mute button for the stream."/>
             <Border Style="{StaticResource Card}">
                 <StackPanel>
                     <CheckBox Content="Send a stream mix" IsChecked="{Binding StreamEnabled, Mode=TwoWay}"/>
@@ -156,25 +156,6 @@
                                Visibility="{Binding NeedsCableVisibility}">
                         <Run Text="You'll need a virtual cable. "/><Hyperlink NavigateUri="https://vb-audio.com/Cable/" RequestNavigate="Link_Navigate" Foreground="#9AA8FF">VB-Cable</Hyperlink><Run Text=" is a free download from VB-Audio, and it installs its own driver. Restart your PC after installing it."/>
                     </TextBlock>
-                    <ItemsControl ItemsSource="{Binding StreamLevels}" Margin="0,10,0,0">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate DataType="{x:Type local:StreamRow}">
-                                <Grid Margin="0,4">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="120"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="50"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="{Binding Name}" Foreground="{Binding Accent}" FontWeight="SemiBold"
-                                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,8,0"/>
-                                    <Slider Grid.Column="1" Style="{StaticResource PlainSlider}" Minimum="0" Maximum="100"
-                                            Value="{Binding Value, Mode=TwoWay}"/>
-                                    <TextBlock Grid.Column="2" Text="{Binding ValueText}" HorizontalAlignment="Right"
-                                               VerticalAlignment="Center" Foreground="{StaticResource SoftTextBrush}"/>
-                                </Grid>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
                 </StackPanel>
             </Border>
 

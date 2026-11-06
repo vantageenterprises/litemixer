@@ -40,6 +40,8 @@ public sealed class AppSettings
     public string? StreamDeviceId { get; set; }
     /// <summary>Stream level in percent (channel id to percent). Missing means 100.</summary>
     public Dictionary<string, double> StreamLevels { get; set; } = new();
+    /// <summary>Channels kept off the stream with the stream side's mute button.</summary>
+    public HashSet<string> StreamMuted { get; set; } = new();
     public bool StartWithWindows { get; set; } = true;
     public bool CheckForUpdates { get; set; } = true;
     /// <summary>Version the tray already announced, so each new version pops up only once.</summary>

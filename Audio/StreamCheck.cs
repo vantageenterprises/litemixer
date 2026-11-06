@@ -297,6 +297,10 @@ internal static class StreamCheck
                 Check($"a stream level of 100% exactly undoes a personal level of 1% (tone {ToneLevel:0.000000}, got {full:0.000000})", Near(full, ToneLevel));
                 double half = Measure(tone, StreamMath.Gain(0.5, QuietestAllowed));
                 Check($"a stream level of 50% is half ({half:0.000000})", Near(half, ToneLevel / 2));
+                mix.TakePeak((uint)tone.Id);
+                Thread.Sleep(300);
+                double meter = mix.TakePeak((uint)tone.Id);
+                Check($"the stream meter reads what's really sent (sent {half:0.000000}, meter {meter:0.000000})", Near(meter, half));
                 double off = Measure(tone, 0);
                 Check($"a stream level of 0% is silent ({off:0.000000})", off == 0);
                 tone.Kill();

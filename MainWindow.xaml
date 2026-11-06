@@ -56,28 +56,63 @@
                         </Grid>
                     </Button>
 
-                    <!-- Fader and level meter -->
-                    <Grid Height="250" Margin="0,18,0,0">
-                        <!-- Safety cap: the fader cannot go above this line -->
-                        <Border Width="24" Height="2" Background="#F0605A" VerticalAlignment="Top"
-                                HorizontalAlignment="Center" Margin="{Binding CapMarkerMargin}"
-                                Visibility="{Binding CapVisibility}" IsHitTestVisible="False"
-                                ToolTip="Volume cap"/>
-                        <Slider Style="{StaticResource FaderSlider}" Value="{Binding Volume, Mode=TwoWay}"
-                                HorizontalAlignment="Center" PreviewMouseWheel="Fader_Wheel"/>
-                        <Border Width="3" HorizontalAlignment="Center" Margin="30,12,0,12"
-                                CornerRadius="1.5" IsHitTestVisible="False">
-                            <Rectangle Fill="{Binding Accent}" RenderTransformOrigin="0.5,1">
-                                <Rectangle.RenderTransform>
-                                    <ScaleTransform ScaleY="{Binding Peak}"/>
-                                </Rectangle.RenderTransform>
-                            </Rectangle>
-                        </Border>
-                    </Grid>
-                    <TextBlock Text="{Binding VolumeText}" FontSize="11" Foreground="{StaticResource DimBrush}"
-                               HorizontalAlignment="Center" Margin="0,6,0,0"/>
-                    <ToggleButton Style="{StaticResource MuteToggle}" IsChecked="{Binding Muted, Mode=TwoWay}"
-                                  HorizontalAlignment="Center" Margin="0,6,0,0" ToolTip="Mute"/>
+                    <!-- Fader and level meter. While the stream mix is on, output channels split in two: what you hear, and what the stream gets. -->
+                    <UniformGrid Rows="1">
+                        <StackPanel ToolTip="{Binding YourTip}">
+                            <Grid Height="18">
+                                <TextBlock Text="&#xE7F6;" FontFamily="{StaticResource IconFont}" FontSize="13"
+                                           Foreground="{StaticResource SoftTextBrush}" HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" Visibility="{Binding YourLabelVisibility}"/>
+                            </Grid>
+                            <Grid Height="250">
+                                <!-- Safety cap: the fader cannot go above this line -->
+                                <Border Width="24" Height="2" Background="#F0605A" VerticalAlignment="Top"
+                                        HorizontalAlignment="Center" Margin="{Binding CapMarkerMargin}"
+                                        Visibility="{Binding CapVisibility}" IsHitTestVisible="False"
+                                        ToolTip="Volume cap"/>
+                                <Slider Style="{StaticResource FaderSlider}" Value="{Binding Volume, Mode=TwoWay}"
+                                        HorizontalAlignment="Center" PreviewMouseWheel="Fader_Wheel"/>
+                                <Border Width="3" HorizontalAlignment="Center" Margin="30,12,0,12"
+                                        CornerRadius="1.5" IsHitTestVisible="False">
+                                    <Rectangle Fill="{Binding Accent}" RenderTransformOrigin="0.5,1">
+                                        <Rectangle.RenderTransform>
+                                            <ScaleTransform ScaleY="{Binding Peak}"/>
+                                        </Rectangle.RenderTransform>
+                                    </Rectangle>
+                                </Border>
+                            </Grid>
+                            <TextBlock Text="{Binding VolumeText}" FontSize="11" Foreground="{StaticResource DimBrush}"
+                                       HorizontalAlignment="Center" Margin="0,6,0,0"/>
+                            <ToggleButton Style="{StaticResource MuteToggle}" IsChecked="{Binding Muted, Mode=TwoWay}"
+                                          HorizontalAlignment="Center" Margin="0,6,0,0" ToolTip="{Binding YourMuteTip}"/>
+                        </StackPanel>
+                        <StackPanel Visibility="{Binding StreamVisibility}" ToolTip="{Binding StreamTip}">
+                            <Grid Height="18">
+                                <TextBlock Text="&#xE93E;" FontFamily="{StaticResource IconFont}" FontSize="13"
+                                           Foreground="{StaticResource SoftTextBrush}" HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" Visibility="{Binding StreamGlyphVisibility}"/>
+                                <Image Source="{Binding StreamIcon}" Width="14" Height="14" HorizontalAlignment="Center"
+                                       VerticalAlignment="Center" Visibility="{Binding StreamIconVisibility}"
+                                       RenderOptions.BitmapScalingMode="HighQuality"/>
+                            </Grid>
+                            <Grid Height="250">
+                                <Slider Style="{StaticResource FaderSlider}" Value="{Binding StreamVolume, Mode=TwoWay}"
+                                        HorizontalAlignment="Center" PreviewMouseWheel="Fader_Wheel"/>
+                                <Border Width="3" HorizontalAlignment="Center" Margin="30,12,0,12"
+                                        CornerRadius="1.5" IsHitTestVisible="False">
+                                    <Rectangle Fill="{Binding Accent}" RenderTransformOrigin="0.5,1">
+                                        <Rectangle.RenderTransform>
+                                            <ScaleTransform ScaleY="{Binding StreamPeak}"/>
+                                        </Rectangle.RenderTransform>
+                                    </Rectangle>
+                                </Border>
+                            </Grid>
+                            <TextBlock Text="{Binding StreamVolumeText}" FontSize="11" Foreground="{StaticResource DimBrush}"
+                                       HorizontalAlignment="Center" Margin="0,6,0,0"/>
+                            <ToggleButton Style="{StaticResource MuteToggle}" IsChecked="{Binding StreamMuted, Mode=TwoWay}"
+                                          HorizontalAlignment="Center" Margin="0,6,0,0" ToolTip="Keep this channel off the stream"/>
+                        </StackPanel>
+                    </UniformGrid>
 
                     <!-- Apps -->
                     <TextBlock Text="{Binding AppsLabel}" FontSize="12" Foreground="{StaticResource DimBrush}"

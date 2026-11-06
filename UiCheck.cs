@@ -164,7 +164,7 @@ internal static class UiCheck
         CheckAppSorting(app, Check);
         CheckUpdatePrompt(Check, folder);
 
-        CheckStreamMix(app, Check);
+        CheckStreamMix(app, Check, folder);
 
         // The quick check in the menus.
         var appMenu = new System.Windows.Controls.ContextMenu();
@@ -295,7 +295,7 @@ internal static class UiCheck
         check("turning sorting back on applies again", model.ShouldFollowMic(4242) && model.ShouldFollowMic(5151));
     }
 
-    static void CheckStreamMix(App app, Action<string, bool> check)
+    static void CheckStreamMix(App app, Action<string, bool> check, string folder)
     {
         // Personal levels with the stream mix on: nothing audible may ever rise.
         check("a channel at zero sits at the inaudible floor", StreamMath.PersonalLevel(0, false) == (StreamMath.Floor, false));
@@ -361,6 +361,65 @@ internal static class UiCheck
         check("turning it on with no device picks nothing and says so", settings.StreamDeviceId == null && model.StreamStatus.Length > 0);
         model.StreamMixEnabled = false;
         check("turning it off clears the message", model.StreamStatus.Length == 0);
+
+        // The second fader in each channel.
+        check("streaming apps go by their usual names", StreamMath.BroadcastName("obs64") == "OBS" && StreamMath.BroadcastName("streamlabs desktop") == "Streamlabs" && StreamMath.BroadcastName("xsplit.core") == "XSplit" && StreamMath.BroadcastName("spotify") == null);
+        var mainWindow = Offscreen(new MainWindow(model));
+        foreach (var channel in model.Channels)
+        {
+            channel.DeviceName = channel == model.Mic ? "Headset Microphone" : "Headphones";
+            channel.Peak = 0.4;
+            channel.StreamPeak = 0.25;
+        }
+        Pump();
+        double singleWidth = mainWindow.ActualWidth, singleHeight = mainWindow.ActualHeight;
+        check("channels have one fader while the stream mix is off", model.OutputChannels.All(c => c.StreamVisibility == Visibility.Collapsed && c.YourLabelVisibility == Visibility.Hidden));
+        model.StreamMixEnabled = true;
+        model.Game.StreamVolume = 40;
+        model.Chat.StreamVolume = 70;
+        foreach (var channel in model.OutputChannels) channel.StreamPeak = channel.StreamVolume / 100.0 * 0.4;
+        model.Media.StreamPeak = 0;
+        Pump();
+        check("turning it on gives each app channel a second fader", model.OutputChannels.All(c => c.StreamVisibility == Visibility.Visible));
+        check("Master and Mic keep one fader", model.Master.StreamVisibility == Visibility.Collapsed && model.Mic.StreamVisibility == Visibility.Collapsed);
+        check($"the window keeps its size ({singleWidth:0}x{singleHeight:0}, now {mainWindow.ActualWidth:0}x{mainWindow.ActualHeight:0})", mainWindow.ActualWidth == singleWidth && mainWindow.ActualHeight == singleHeight);
+        check("the stream fader saves its level", settings.StreamLevels["game"] == 40 && model.StreamLevel(model.Game) == 40);
+        check("the stream fader doesn't move what you hear", model.Game.Volume == 100 && audioCalls == 0);
+        model.SetStreamLevel(model.Game, 55);
+        check("the fader follows a level set elsewhere", model.Game.StreamVolume == 55 && model.Game.StreamVolumeText == "55%");
+        model.Game.SetStreamApp(null, null);
+        check("with no streaming app open it shows a plain icon", model.Game.StreamGlyphVisibility == Visibility.Visible && model.Game.StreamIconVisibility == Visibility.Collapsed && !model.Game.StreamTip.Contains("OBS"));
+        model.Game.SetStreamApp("OBS", System.Windows.Media.Imaging.BitmapSource.Create(1, 1, 96, 96, PixelFormats.Pbgra32, null, new byte[4], 4));
+        check("with one open it shows that app and says so", model.Game.StreamGlyphVisibility == Visibility.Collapsed && model.Game.StreamIconVisibility == Visibility.Visible && model.Game.StreamTip.Contains("OBS"));
+        model.Game.SetStreamApp(null, null);
+        var added = model.AddChannel("Added Later");
+        check("a channel added while it's on gets the fader too", added.StreamVisibility == Visibility.Visible);
+        var extras = Enumerable.Range(1, 12).Select(n => model.AddChannel($"Extra {n}")).ToList();
+        extras[^1].StreamVolume = 15;
+        check("any number of extra channels get their own stream level", extras.All(c => c.StreamVisibility == Visibility.Visible) && settings.StreamLevels[extras[^1].Id] == 15 && model.OutputChannels.Contains(extras[^1]));
+        foreach (var extra in extras) model.DeleteChannel(extra);
+        added.StreamMuted = true;
+        check("the stream mute button is saved", settings.StreamMuted.Contains(added.Id));
+        model.DeleteChannel(added);
+        check("deleting a channel forgets its stream mute", settings.StreamMuted.Count == 0);
+        model.Media.StreamMuted = true;
+        check("the stream mute keeps the level for later", model.StreamLevel(model.Media) == 100 && model.Media.StreamVolume == 100);
+        check("the stream mute doesn't mute what you hear", !model.Media.Muted && audioCalls == 0);
+        check("muting for yourself doesn't mute the stream", !model.Game.StreamMuted);
+        Pump();
+        Save(mainWindow, folder, "12-stream-faders");
+        model.Media.StreamMuted = false;
+        check("unmuting clears it", settings.StreamMuted.Count == 0);
+        var reloaded = System.Text.Json.JsonSerializer.Deserialize<AppSettings>(System.Text.Json.JsonSerializer.Serialize(new AppSettings { StreamMuted = { "chat" } }))!;
+        check("the stream mute survives a restart", reloaded.StreamMuted.Contains("chat"));
+        check("older settings have nothing muted", System.Text.Json.JsonSerializer.Deserialize<AppSettings>("{}")!.StreamMuted.Count == 0);
+        model.StreamMixEnabled = false;
+        Pump();
+        check("turning it off takes the fader away and the window stays the same size", model.Game.StreamVisibility == Visibility.Collapsed && mainWindow.ActualWidth == singleWidth && mainWindow.ActualHeight == singleHeight);
+        model.SetStreamLevel(model.Game, 100);
+        model.SetStreamLevel(model.Chat, 100);
+        mainWindow.Close();
+
         var custom = model.AddChannel("Stream Only");
         model.SetStreamLevel(custom, 20);
         model.DeleteChannel(custom);

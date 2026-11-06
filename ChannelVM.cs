@@ -43,6 +43,12 @@ public sealed class ChannelVM : ObservableObject
     double _volume = 100;
     double _cap = 100;
     double _peak;
+    double _streamVolume = 100;
+    double _streamPeak;
+    bool _showStream;
+    bool _streamMuted;
+    string? _streamAppName;
+    ImageSource? _streamIcon;
     bool _muted;
     bool _silent;
     string _title;
@@ -156,6 +162,93 @@ public sealed class ChannelVM : ObservableObject
             _peak = value;
             OnPropertyChanged();
         }
+    }
+
+    // ---- The second fader, shown while the stream mix is on ----
+
+    internal Action<ChannelVM>? StreamVolumeChanged;
+
+    /// <summary>This channel's level in the stream mix. Separate from Volume, which is what the user hears.</summary>
+    public double StreamVolume
+    {
+        get => _streamVolume;
+        set
+        {
+            if (!Set(ref _streamVolume, Math.Clamp(Math.Round(value), 0, 100))) return;
+            OnPropertyChanged(nameof(StreamVolumeText));
+            if (!_silent) StreamVolumeChanged?.Invoke(this);
+        }
+    }
+
+    public string StreamVolumeText => $"{_streamVolume:0}%";
+
+    internal Action<ChannelVM>? StreamMutedChanged;
+
+    /// <summary>Keeps this channel off the stream. Separate from Muted, which only silences it for the user.</summary>
+    public bool StreamMuted
+    {
+        get => _streamMuted;
+        set
+        {
+            if (!Set(ref _streamMuted, value)) return;
+            if (!_silent) StreamMutedChanged?.Invoke(this);
+        }
+    }
+
+    internal void SetStreamSilently(double volume, bool muted)
+    {
+        _silent = true;
+        try
+        {
+            StreamVolume = volume;
+            StreamMuted = muted;
+        }
+        finally { _silent = false; }
+    }
+
+    public double StreamPeak
+    {
+        get => _streamPeak;
+        set
+        {
+            if (Math.Abs(_streamPeak - value) < 0.004) return;
+            _streamPeak = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool ShowStream
+    {
+        get => _showStream;
+        set
+        {
+            if (!Set(ref _showStream, value)) return;
+            OnPropertyChanged(nameof(StreamVisibility));
+            OnPropertyChanged(nameof(YourLabelVisibility));
+            OnPropertyChanged(nameof(YourTip));
+            OnPropertyChanged(nameof(YourMuteTip));
+        }
+    }
+
+    public Visibility StreamVisibility => _showStream ? Visibility.Visible : Visibility.Collapsed;
+    /// <summary>Hidden rather than collapsed, so the fader sits at the same height either way.</summary>
+    public Visibility YourLabelVisibility => _showStream ? Visibility.Visible : Visibility.Hidden;
+    public string? YourTip => _showStream ? "What you hear" : null;
+    public string YourMuteTip => _showStream ? "Mute for you. It still reaches the stream." : "Mute";
+
+    public ImageSource? StreamIcon { get => _streamIcon; private set => Set(ref _streamIcon, value); }
+    public Visibility StreamIconVisibility => _streamIcon == null ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility StreamGlyphVisibility => _streamIcon == null ? Visibility.Visible : Visibility.Collapsed;
+    public string StreamTip => _streamAppName == null ? "Your stream and recording level" : $"Your {_streamAppName} stream and recording level";
+
+    /// <summary>The streaming app that's open, shown above the stream fader. Null when there isn't one.</summary>
+    internal void SetStreamApp(string? name, ImageSource? icon)
+    {
+        _streamAppName = name;
+        StreamIcon = icon;
+        OnPropertyChanged(nameof(StreamIconVisibility));
+        OnPropertyChanged(nameof(StreamGlyphVisibility));
+        OnPropertyChanged(nameof(StreamTip));
     }
 
     public string DeviceName { get => _deviceName; set => Set(ref _deviceName, value); }

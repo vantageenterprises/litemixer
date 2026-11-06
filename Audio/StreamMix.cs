@@ -40,6 +40,16 @@ internal static class StreamMath
     public static int CableRank(string deviceName) =>
         !LooksLikeCable(deviceName) ? 2 : Regex.IsMatch(deviceName, @"\b\d+\s*ch\b", RegexOptions.IgnoreCase) ? 1 : 0;
 
+    /// <summary>The name people know a broadcast app by, or null if it isn't one.</summary>
+    public static string? BroadcastName(string key)
+    {
+        if (!IsBroadcastApp(key)) return null;
+        if (key.StartsWith("obs")) return "OBS";
+        if (key.StartsWith("xsplit")) return "XSplit";
+        if (key.StartsWith("vmix")) return "vMix";
+        return key == "wirecast" ? "Wirecast" : "Streamlabs";
+    }
+
     /// <summary>
     /// Capturing a process includes its children, so a launcher would bring its game along and the game would be heard twice.
     /// Only the most specific process is captured. A launcher's own sounds drop out while its game is making sound.
@@ -193,6 +203,7 @@ internal sealed unsafe class StreamMix : IDisposable
 
     readonly Func<IStreamOutput> _openOutput;
     readonly ConcurrentDictionary<uint, float> _gains = new();
+    readonly ConcurrentDictionary<uint, float> _peaks = new();
     readonly ConcurrentQueue<Source> _opened = new();
     readonly ConcurrentDictionary<uint, DateTime> _retryAt = new();
     readonly Dictionary<uint, Source> _sources = new();
@@ -223,6 +234,9 @@ internal sealed unsafe class StreamMix : IDisposable
 
     public void SetSources(HashSet<uint> pids) => _wanted = pids;
 
+    /// <summary>The loudest this app has been in the mix, at its stream level, since the last time this was asked.</summary>
+    public double TakePeak(uint pid) => _peaks.TryRemove(pid, out var peak) ? peak : 0;
+
     void Run()
     {
         var mmcss = NativeAudio.AvSetMmThreadCharacteristicsW("Pro Audio", out _);
@@ -245,7 +259,11 @@ internal sealed unsafe class StreamMix : IDisposable
                 if (free <= 0) continue;
 
                 Array.Clear(mix, 0, free * 2);
-                foreach (var source in _sources.Values) source.MixInto(mix, free, _gains.GetValueOrDefault(source.Pid));
+                foreach (var source in _sources.Values)
+                {
+                    float peak = source.MixInto(mix, free, _gains.GetValueOrDefault(source.Pid));
+                    if (peak > 0) _peaks.AddOrUpdate(source.Pid, static (_, p) => p, static (_, old, p) => Math.Max(old, p), peak);
+                }
                 for (int i = 0; i < free * 2; i++)
                 {
                     float fade = played >= fadeFrames ? 1 : (float)(played + i / 2) / fadeFrames;
@@ -283,6 +301,7 @@ internal sealed unsafe class StreamMix : IDisposable
         {
             _sources[pid].Dispose();
             _sources.Remove(pid);
+            _peaks.TryRemove(pid, out _);
         }
         foreach (var pid in wanted)
         {
@@ -408,7 +427,8 @@ internal sealed unsafe class StreamMix : IDisposable
             }
         }
 
-        public void MixInto(float[] mix, int frames, float target)
+        /// <summary>Adds this app to the mix, and returns the loudest sample it added.</summary>
+        public float MixInto(float[] mix, int frames, float target)
         {
             int capacity = _ring.Length / 2;
             if (StreamMath.IsGainJump(_gain, target))
@@ -426,7 +446,7 @@ internal sealed unsafe class StreamMix : IDisposable
                 _read = (_read + dropped) % capacity;
                 _count -= dropped;
                 _discard -= dropped;
-                if (_discard > 0) return;
+                if (_discard > 0) return 0;
             }
             if (_count > MaxBuffered)
             {
@@ -435,24 +455,27 @@ internal sealed unsafe class StreamMix : IDisposable
                 _count -= drop;
             }
             if (!_primed && _count >= Primed) _primed = true;
-            if (!_primed) return;
+            if (!_primed) return 0;
 
             int take = Math.Min(_count, frames);
             if (take == 0)
             {
                 _primed = false;
-                return;
+                return 0;
             }
-            float start = _gain, step = (target - start) / take;
+            float start = _gain, step = (target - start) / take, peak = 0;
             for (int f = 0; f < take; f++)
             {
                 float gain = start + step * f;
-                mix[f * 2] += _ring[_read * 2] * gain;
-                mix[f * 2 + 1] += _ring[_read * 2 + 1] * gain;
+                float left = _ring[_read * 2] * gain, right = _ring[_read * 2 + 1] * gain;
+                mix[f * 2] += left;
+                mix[f * 2 + 1] += right;
+                peak = Math.Max(peak, Math.Max(Math.Abs(left), Math.Abs(right)));
                 _read = (_read + 1) % capacity;
             }
             _count -= take;
             _gain = target;
+            return peak;
         }
 
         static IAudioClient OpenLoopback(uint pid)
@@ -520,6 +543,32 @@ internal sealed unsafe class StreamMix : IDisposable
             CloseHandle(snapshot);
         }
         return parents;
+    }
+
+    /// <summary>A running broadcast app, if there is one. It may have no audio of its own, so sessions can't be relied on to find it.</summary>
+    public static (string Key, uint Pid)? FindBroadcastApp()
+    {
+        (string Key, uint Pid)? best = null;
+        var snapshot = CreateToolhelp32Snapshot(2 /* TH32CS_SNAPPROCESS */, 0);
+        if (snapshot == IntPtr.Zero || snapshot == new IntPtr(-1)) return null;
+        try
+        {
+            var entry = new ProcessEntry { Size = (uint)Marshal.SizeOf<ProcessEntry>() };
+            if (!Process32FirstW(snapshot, ref entry)) return null;
+            do
+            {
+                var key = Path.GetFileNameWithoutExtension(entry.ExeFile).ToLowerInvariant();
+                // Sorted, so the choice doesn't flip with the snapshot's order if two are open.
+                if (StreamMath.IsBroadcastApp(key) && (best == null || string.CompareOrdinal(key, best.Value.Key) < 0))
+                    best = (key, entry.ProcessId);
+            }
+            while (Process32NextW(snapshot, ref entry));
+        }
+        finally
+        {
+            CloseHandle(snapshot);
+        }
+        return best;
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]

@@ -53,7 +53,9 @@ Twitch and YouTube get their audio from those apps, so there's nothing to set up
    product with its own driver and terms, and LiteMixer doesn't install it for you. Restart your PC afterwards.
 2. In LiteMixer, open **Settings > Streaming and recording** and turn on **Send a stream mix**. Choose the cable under
    **Send to**, usually called **CABLE Input**.
-3. Set the level of each channel for your stream.
+3. Each channel on the main mixer now has two faders. The one under the headphones is what you hear. The one under your
+   streaming app's icon is what your stream gets, with its own mute button underneath. This includes every channel you've
+   added, as many as you like. Master and Mic keep one fader.
 4. In your streaming app, add an audio input source and choose the other end of the cable, usually called
    **CABLE Output**. In OBS that's **Sources > + > Audio Input Capture**.
 5. Turn off your streaming app's **Desktop Audio**, or your audience hears everything twice.
@@ -63,8 +65,8 @@ To record, use the same setup. The stream mix goes to whatever your app is captu
 **Good to know**
 
 - **Your mic isn't in the stream mix.** Add it in your streaming app as usual, so you keep its filters and its own track.
-- **Muted still reaches the stream.** Muting a channel, or turning it to zero, only silences it for you. To take a channel
-  off the stream, turn its stream level to zero.
+- **Two mute buttons.** Muting a channel on your side, or turning that fader to zero, only silences it for you. It still
+  reaches the stream. To keep a channel off the stream, use the mute button on the stream side.
 - **Devices you listen on can't be used.** The stream mix plays at its own levels, so LiteMixer refuses to send it to
   your headset or speakers.
 - **Streaming apps are left out of the mix,** so their own sound can't feed back into your stream. Windows system sounds

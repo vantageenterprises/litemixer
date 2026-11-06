@@ -97,6 +97,7 @@ public sealed class MixerModel : ObservableObject, IDisposable
             channel.VolumeChanged = OnVolumeChanged;
             channel.MutedChanged = OnMutedChanged;
         }
+        foreach (var channel in _outputs) WireStream(channel);
 
         _tick = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(250) };
         _tick.Tick += (_, _) =>
@@ -156,7 +157,12 @@ public sealed class MixerModel : ObservableObject, IDisposable
         set
         {
             _meterTimer.IsEnabled = value;
-            if (!value) foreach (var channel in Channels) channel.Peak = 0;
+            if (!value)
+                foreach (var channel in Channels)
+                {
+                    channel.Peak = 0;
+                    channel.StreamPeak = 0;
+                }
         }
     }
 
@@ -244,6 +250,12 @@ public sealed class MixerModel : ObservableObject, IDisposable
 
     public event Action? StreamChanged;
 
+    DateTime _nextStreamAppScan;
+    string? _streamAppKey;
+    string? _streamAppName;
+    System.Windows.Media.ImageSource? _streamAppIcon;
+    double[] _streamPeaks = [];
+
     public bool StreamMixEnabled
     {
         get => _s.StreamMixEnabled;
@@ -254,9 +266,39 @@ public sealed class MixerModel : ObservableObject, IDisposable
             // Turning it on with nothing chosen picks a virtual cable, never a real output.
             if (value && _s.StreamDeviceId == null)
                 _s.StreamDeviceId = StreamDeviceChoices.Where(d => StreamMath.LooksLikeCable(d.Name)).OrderBy(d => StreamMath.CableRank(d.Name)).FirstOrDefault()?.Id;
+            foreach (var channel in _outputs)
+            {
+                channel.ShowStream = value;
+                channel.StreamPeak = 0;
+            }
+            _nextStreamAppScan = default;
+            if (value) UpdateStreamApp();
             UpdateStream();
             QueueSave();
         }
+    }
+
+    /// <summary>Gives an output channel its stream fader, matching the settings.</summary>
+    void WireStream(ChannelVM channel)
+    {
+        channel.SetStreamSilently(StreamLevel(channel), _s.StreamMuted.Contains(channel.Id));
+        channel.StreamVolumeChanged = c => SetStreamLevel(c, c.StreamVolume);
+        channel.StreamMutedChanged = c => SetStreamMuted(c, c.StreamMuted);
+        channel.ShowStream = _s.StreamMixEnabled;
+        channel.SetStreamApp(_streamAppName, _streamAppIcon);
+    }
+
+    /// <summary>Finds the open streaming app, for the icon above the stream faders. A process list every few seconds, while the mix is on.</summary>
+    void UpdateStreamApp()
+    {
+        if (DateTime.UtcNow < _nextStreamAppScan) return;
+        _nextStreamAppScan = DateTime.UtcNow.AddSeconds(3);
+        var found = StreamMix.FindBroadcastApp();
+        if (found?.Key == _streamAppKey) return;
+        _streamAppKey = found?.Key;
+        _streamAppName = found is { } app ? StreamMath.BroadcastName(app.Key) : null;
+        _streamAppIcon = found is { } open ? Icons.ForExe(AudioEngine.QueryProcessPath(open.Pid)) : null;
+        foreach (var channel in _outputs) channel.SetStreamApp(_streamAppName, _streamAppIcon);
     }
 
     /// <summary>Output devices the stream mix may use: everything the user isn't listening on.</summary>
@@ -282,9 +324,22 @@ public sealed class MixerModel : ObservableObject, IDisposable
         percent = Math.Clamp(Math.Round(percent), 0, 100);
         if (percent >= 100) _s.StreamLevels.Remove(channel.Id);
         else _s.StreamLevels[channel.Id] = percent;
+        channel.SetStreamSilently(percent, channel.StreamMuted);
         ApplyChannel(channel);
         QueueSave();
     }
+
+    public void SetStreamMuted(ChannelVM channel, bool muted)
+    {
+        if (muted) _s.StreamMuted.Add(channel.Id);
+        else _s.StreamMuted.Remove(channel.Id);
+        channel.SetStreamSilently(channel.StreamVolume, muted);
+        ApplyChannel(channel);
+        QueueSave();
+    }
+
+    /// <summary>What the channel sends to the stream: its stream fader, or nothing while it's muted on the stream side.</summary>
+    double StreamOutput(ChannelVM channel) => channel.StreamMuted ? 0 : StreamLevel(channel);
 
     HashSet<string> ListeningDeviceIds()
     {
@@ -511,6 +566,7 @@ public sealed class MixerModel : ObservableObject, IDisposable
         channel.SetSilently(level, false);
         channel.VolumeChanged = OnVolumeChanged;
         channel.MutedChanged = OnMutedChanged;
+        WireStream(channel);
         _applied[channel] = level;
 
         _byId[channel.Id] = channel;
@@ -597,6 +653,7 @@ public sealed class MixerModel : ObservableObject, IDisposable
         _s.Caps.Remove(channel.Id);
         _s.Looks.Remove(channel.Id);
         _s.StreamLevels.Remove(channel.Id);
+        _s.StreamMuted.Remove(channel.Id);
         _s.DuckChannels.Remove(channel.Id);
         _byId.Remove(channel.Id);
         _applied.Remove(channel);
@@ -718,6 +775,7 @@ public sealed class MixerModel : ObservableObject, IDisposable
         UpdateApps();
         UpdateDeviceRows();
         if (_s.StreamMixEnabled || _stream != null) UpdateStream();
+        if (_s.StreamMixEnabled) UpdateStreamApp();
     }
 
     string? SyncDefault(EDataFlow flow, List<DeviceInfo> devices, string? saved, bool grace, Action<string> save)
@@ -876,7 +934,7 @@ public sealed class MixerModel : ObservableObject, IDisposable
         if (_stream != null)
         {
             (level, mute) = StreamMath.PersonalLevel(level, mute);
-            _stream.SetGain(session.Pid, StreamMath.Gain(StreamLevel(channel) / 100.0 * AppVolume(session.Key) / 100.0, level));
+            _stream.SetGain(session.Pid, StreamMath.Gain(StreamOutput(channel) / 100.0 * AppVolume(session.Key) / 100.0, level));
         }
         AudioEngine.SetSessionVolume(session, (float)level, mute);
     }
@@ -1013,8 +1071,16 @@ public sealed class MixerModel : ObservableObject, IDisposable
         if (_peaks.Length != Channels.Count) _peaks = new double[Channels.Count];
         var peaks = _peaks;
         Array.Clear(peaks);
+        if (_streamPeaks.Length != Channels.Count) _streamPeaks = new double[Channels.Count];
+        var streamPeaks = _streamPeaks;
+        Array.Clear(streamPeaks);
         foreach (var session in _sessions)
         {
+            if (_stream != null)
+            {
+                int target = IndexOf(ChannelFor(session.Key));
+                streamPeaks[target] = Math.Max(streamPeaks[target], _stream.TakePeak(session.Pid));
+            }
             double peak = AudioEngine.GetSessionPeak(session);
             if (peak <= 0) continue;
             int index = IndexOf(ChannelFor(session.Key));
@@ -1029,6 +1095,8 @@ public sealed class MixerModel : ObservableObject, IDisposable
             // Post-fader: the level never rises past the fader, and a muted channel shows nothing.
             double level = channel.Muted ? 0 : ToMeterScale(peaks[i]) * channel.Volume / 100.0;
             channel.Peak = Math.Max(level, channel.Peak * 0.82);
+            // Read from the mix itself, so it's already at the stream level, and muting for yourself doesn't touch it.
+            channel.StreamPeak = Math.Max(ToMeterScale(streamPeaks[i]), channel.StreamPeak * 0.82);
         }
     }
 

@@ -163,7 +163,6 @@ public sealed class SettingsVM : ObservableObject
     public ObservableCollection<HotkeyRow> Hotkeys { get; }
     public ObservableCollection<CapRow> Caps { get; } = new();
     public ObservableCollection<DuckRow> DuckChannels { get; } = new();
-    public ObservableCollection<StreamRow> StreamLevels { get; } = new();
 
     public bool StreamEnabled
     {
@@ -275,8 +274,6 @@ public sealed class SettingsVM : ObservableObject
     {
         Caps.Clear();
         foreach (var channel in _model.CappableChannels) Caps.Add(new CapRow(channel, _model));
-        StreamLevels.Clear();
-        foreach (var channel in _model.OutputChannels) StreamLevels.Add(new StreamRow(channel, _model));
         DuckChannels.Clear();
         foreach (var channel in _model.OutputChannels.Where(c => c != _model.Chat)) DuckChannels.Add(new DuckRow(channel, _model));
     }
@@ -367,34 +364,6 @@ public sealed class CapRow : ObservableObject
     }
 
     public string ValueText => _channel.Cap >= 100 ? "Off" : $"{_channel.Cap:0}%";
-}
-
-public sealed class StreamRow : ObservableObject
-{
-    readonly ChannelVM _channel;
-    readonly MixerModel _model;
-
-    public StreamRow(ChannelVM channel, MixerModel model)
-    {
-        _channel = channel;
-        _model = model;
-    }
-
-    public string Name => _channel.DisplayName;
-    public Brush Accent => _channel.Accent;
-
-    public double Value
-    {
-        get => _model.StreamLevel(_channel);
-        set
-        {
-            _model.SetStreamLevel(_channel, value);
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(ValueText));
-        }
-    }
-
-    public string ValueText => $"{_model.StreamLevel(_channel):0}%";
 }
 
 public sealed class DuckRow : ObservableObject
