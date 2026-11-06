@@ -58,6 +58,13 @@ public partial class App : Application
             Environment.Exit(0);
             return;
         }
+        int audioState = Array.IndexOf(e.Args, "--audio-state");
+        if (audioState >= 0 && audioState + 1 < e.Args.Length)
+        {
+            LiteMixer.Audio.StreamCheck.WriteState(e.Args[audioState + 1]);
+            Environment.Exit(0);
+            return;
+        }
         int streamCheck = Array.IndexOf(e.Args, "--stream-check");
         if (streamCheck >= 0 && streamCheck + 1 < e.Args.Length)
         {

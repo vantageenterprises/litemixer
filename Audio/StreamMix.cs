@@ -23,10 +23,10 @@ internal static class StreamMath
         appliedLevel <= 0 ? 0 : (float)Math.Clamp(streamLevel / appliedLevel, 0, MaxGain);
 
     /// <summary>
-    /// Audio already buffered was captured at the old volume. Under a big gain jump, such as muting a channel, it would
-    /// come out as a loud pop on the stream, so a jump this size drops the buffer and fades back in.
+    /// Audio already buffered, or on its way, was captured at the old volume. Under a big gain jump, such as muting a
+    /// channel, it would come out as a loud pop on the stream, so a jump this size drops it and fades back in.
     /// </summary>
-    public static bool IsGainJump(float current, float target) => current > 0 && target > current * 8;
+    public static bool IsGainJump(float current, float target) => current > 0 && target > current * 2;
 
     /// <summary>Broadcast apps can play their monitoring out through an app session. Capturing that would feed the stream back into itself.</summary>
     public static bool IsBroadcastApp(string key) => key is
@@ -183,6 +183,7 @@ internal sealed unsafe class StreamMix : IDisposable
 {
     const int Primed = 960;        // 20 ms at 48 kHz: how much to hold before a source starts playing
     const int MaxBuffered = 7200;  // 150 ms: past this a source has drifted or stalled, and catches up
+    const int JumpDiscard = 4800;  // 100 ms: how long audio from before a volume change can keep arriving
     const uint SilentPacket = 2;
     const double FadeInSeconds = 1;
 
@@ -337,7 +338,7 @@ internal sealed unsafe class StreamMix : IDisposable
         readonly IAudioCaptureClient? _capture;
         readonly AutoResetEvent? _ready;
         readonly float[] _ring = new float[(MaxBuffered + 4800) * 2];
-        int _read, _count;
+        int _read, _count, _discard;
         bool _primed;
         float _gain;
 
@@ -412,6 +413,16 @@ internal sealed unsafe class StreamMix : IDisposable
                 _count = 0;
                 _primed = false;
                 _gain = 0;
+                _discard = JumpDiscard;
+            }
+            if (_discard > 0)
+            {
+                // Still arriving at the old volume, so none of this can play at the new gain.
+                int dropped = Math.Min(_discard, _count);
+                _read = (_read + dropped) % capacity;
+                _count -= dropped;
+                _discard -= dropped;
+                if (_discard > 0) return;
             }
             if (_count > MaxBuffered)
             {
