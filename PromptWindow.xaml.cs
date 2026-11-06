@@ -40,6 +40,17 @@ public partial class PromptWindow : Window
     public static bool Confirm(Window? owner, string title, string message, string accept) =>
         new PromptWindow(owner, title, message, accept, "", null).ShowDialog() == true;
 
+    /// <summary>Just tells the user something, with one button.</summary>
+    public static void Inform(Window? owner, string title, string message) =>
+        InformWindow(owner, title, message).ShowDialog();
+
+    internal static PromptWindow InformWindow(Window? owner, string title, string message)
+    {
+        var dialog = new PromptWindow(owner, title, message, "OK", "", null);
+        dialog.CancelButton.Visibility = Visibility.Collapsed;
+        return dialog;
+    }
+
     /// <summary>For the offscreen UI check.</summary>
     internal static PromptWindow Sample(string title, string message, string accept, string initial, string? problem)
     {

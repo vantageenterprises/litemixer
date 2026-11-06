@@ -242,6 +242,13 @@ public partial class App : Application
         OfferUpdateWhenFree();
     }
 
+    /// <summary>A quick check from the menu, which always gives an answer: the update, or what it found.</summary>
+    async Task CheckFromMenuAsync()
+    {
+        await CheckForUpdatesAsync(userAsked: true);
+        if (Updater.Available == null) PromptWindow.Inform(_main, "Check for updates", Updater.Status);
+    }
+
     System.Windows.Threading.DispatcherTimer NewUpdatePromptTimer()
     {
         var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMinutes(1) };
@@ -429,6 +436,7 @@ public partial class App : Application
             Directory.CreateDirectory(SettingsStore.Folder);
             Process.Start(new ProcessStartInfo("explorer.exe", $"\"{SettingsStore.Folder}\"") { UseShellExecute = true });
         }));
+        menu.Items.Add(Menus.Item("Check for updates", () => _ = CheckFromMenuAsync()));
         menu.Items.Add(new Separator());
         menu.Items.Add(Menus.Item("Exit LiteMixer", ExitApp));
     }

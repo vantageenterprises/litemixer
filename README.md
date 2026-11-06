@@ -23,6 +23,7 @@ with no drivers and no account.
   levels over a game. Open it with Ctrl+Alt+K or from the menu; it remembers where you put it.
 - **Per-app volume** inside a channel, **hidden apps**, and **profiles** for one-click setups.
 - **Starts with Windows** in the tray and restores your devices, levels and assignments.
+- **Install it where you like:** choose the folder during setup. Updates stay in that folder.
 
 ## Screenshots
 
@@ -90,8 +91,9 @@ Checks that change nothing real:
 
 - App: `LiteMixer.exe --ui-check <dir>` renders the windows offscreen and tests channel and updater logic.
   `--screenshots <dir>` renders the images in `docs/screenshots` from sample data.
-- Installer: `--render <dir>` draws every screen, `--test-install <dir>` unpacks into that folder, and `--preview`
-  opens the real window with simulated work.
+- Installer: `--render <dir>` draws every screen, `--test-install <dir>` unpacks into that folder,
+  `--check-location <dir>` tests choosing an install folder inside that folder, and `--preview` opens the real window
+  with simulated work.
 
 ### Releasing (maintainers)
 

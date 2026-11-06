@@ -28,8 +28,8 @@ internal sealed class Ui
         ("MASTER", 0xFF5B6CF5),
         ("GAME", 0xFF1FCB9C),
         ("CHAT", 0xFF3BA4F0),
-        ("MEDIA", 0xFFF2468E),
-        ("AUX", 0xFF9D5CF5),
+        ("VIDEO", 0xFFF2468E),
+        ("MUSIC", 0xFF9D5CF5),
         ("MIC", 0xFFF5A623),
     ];
 
@@ -38,7 +38,7 @@ internal sealed class Ui
     static readonly double[] Phases = [0.4, 2.1, 4.0, 1.2, 3.1, 5.2];
     static readonly double[] Rest = [0.72, 0.50, 0.42, 0.34, 0.58, 0.64];
 
-    public enum Hit { None, Primary, Secondary, Toggle, Close, Minimize, License }
+    public enum Hit { None, Primary, Secondary, Toggle, Close, Minimize, License, Location }
 
     readonly List<(Hit Id, float X, float Y, float W, float H)> _hits = new();
     readonly Dictionary<Hit, double> _hover = new();
@@ -72,6 +72,8 @@ internal sealed class Ui
     public bool ToggleOn { get; set; }
     public bool Updating { get; }
     public string ErrorText { get; set; } = "";
+    public string LocationText { get; set; } = "";
+    public string LocationProblem { get; set; } = "";
     public double Progress { get; set; }
     public Hit Hot { get; set; }
     public Hit Pressed { get; set; }
@@ -90,14 +92,14 @@ internal sealed class Ui
     public IEnumerable<Hit> Focusable()
     {
         foreach (var item in _hits)
-            if (item.Id is Hit.Primary or Hit.Toggle or Hit.Secondary) yield return item.Id;
+            if (item.Id is Hit.Primary or Hit.Toggle or Hit.Secondary or Hit.Location) yield return item.Id;
     }
 
     public void Advance(double dt)
     {
         _time += dt;
         _screenAge += dt;
-        foreach (var id in new[] { Hit.Primary, Hit.Secondary, Hit.Toggle, Hit.Close, Hit.Minimize, Hit.License })
+        foreach (var id in new[] { Hit.Primary, Hit.Secondary, Hit.Toggle, Hit.Close, Hit.Minimize, Hit.License, Hit.Location })
         {
             double target = Hot == id ? 1 : 0;
             double now = _hover.GetValueOrDefault(id);
@@ -226,6 +228,8 @@ internal sealed class Ui
 
         PrimaryButton(g, Updating ? "Update now" : "Install", 48, 332 + rise, 172, o, Blue, Violet);
         Toggle(g, "Desktop shortcut", 240, 346 + rise, o);
+        // An update stays where the app already is.
+        if (!Updating) LocationRow(g, 48, 302 + rise, o);
         LicenseLine(g, 48, 404 + rise, o);
         Footer(g, $"Version {Installer.Version}  ·  {Installer.Publisher}", o);
     }
@@ -284,6 +288,18 @@ internal sealed class Ui
     static void Paragraph(Gfx g, string text, float y, double o)
     {
         g.Text(text, 48, y, 340, 64, Body, 14.5f, Gfx.Fade(Soft, o));
+    }
+
+    void LocationRow(Gfx g, float x, float y, double o)
+    {
+        const float changeX = 292, changeW = 50;
+        bool problem = LocationProblem.Length > 0;
+        g.Text(problem ? LocationProblem : $"Install to {LocationText}", x, y, changeX - 4, 18, Body, 12, Gfx.Fade(problem ? Danger : Dim, o));
+
+        _hits.Add((Hit.Location, x + changeX, y - 4, changeW, 24));
+        double hover = _hover.GetValueOrDefault(Hit.Location);
+        g.Text("Change", x + changeX, y, changeW, 18, BodyStrong, 12, Gfx.Fade(hover > 0.5 ? White : Soft, o), Gfx.Align.Right);
+        FocusRing(g, Hit.Location, x + changeX, y - 1, changeW, 18, 4, o);
     }
 
     void LicenseLine(Gfx g, float x, float y, double o)

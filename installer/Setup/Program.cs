@@ -7,6 +7,7 @@ internal static class Program
     // Build-time checks. None of them touch the installed app, the registry or real shortcuts:
     //   --render <dir>        draws every screen to PNG files
     //   --test-install <dir>  unpacks the payload and writes a test shortcut inside <dir>
+    //   --check-location <dir> tests choosing an install folder, inside <dir>
     //   --preview             opens the real window, but its buttons only simulate the work
     [STAThread]
     static int Main(string[] args)
@@ -32,6 +33,20 @@ internal static class Program
             }
         }
 
+        if (ArgAfter(args, "--check-location") is { } locationDir)
+        {
+            try
+            {
+                Installer.CheckLocation(locationDir);
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                File.WriteAllText(Path.Combine(locationDir, "error.txt"), ex.ToString());
+                return 1;
+            }
+        }
+
         bool preview = args.Contains("--preview");
         bool installing = Installer.HasPayload;
         if (!installing && !preview && !args.Contains("--relocated") && Installer.RelocateUninstaller()) return 0;
@@ -39,9 +54,14 @@ internal static class Program
         // --update: started by the app after the user agreed, so it goes straight to work and reopens the app.
         bool autoUpdate = installing && args.Contains("--update");
         bool updating = installing && Installer.IsInstalled;
+        // An update stays in the folder the app is in. A new install starts from the default, even if an old record says otherwise.
+        if (installing && !updating) Installer.InstallDir = Installer.DefaultDir;
         var ui = new Ui(autoUpdate ? Screen.Working : installing ? Screen.Welcome : Screen.ConfirmRemove,
             toggle: installing && (!updating || Installer.DesktopShortcutExists),
-            updating, Window.ReducedMotion());
+            updating, Window.ReducedMotion())
+        {
+            LocationText = Installer.ShortPath(Installer.InstallDir),
+        };
 
         Window? window = null;
         Task? work = null;
@@ -80,10 +100,25 @@ internal static class Program
             });
         }
 
+        void ChooseFolder()
+        {
+            var startIn = Path.GetDirectoryName(Installer.InstallDir);
+            var picked = FolderPicker.Pick(window!.Handle, startIn != null && Directory.Exists(startIn) ? startIn : null);
+            if (picked == null) return;
+            var target = Installer.TargetFor(picked);
+            ui.LocationProblem = Installer.FolderProblem(target) ?? "";
+            if (ui.LocationProblem.Length > 0) return;
+            Installer.InstallDir = target;
+            ui.LocationText = Installer.ShortPath(target);
+        }
+
         void OnClick(Ui.Hit hit)
         {
             switch (hit)
             {
+                case Ui.Hit.Location:
+                    ChooseFolder();
+                    return;
                 case Ui.Hit.Close:
                     window!.Close();
                     return;
@@ -100,6 +135,10 @@ internal static class Program
 
             switch (ui.Screen)
             {
+                // A first install goes back to the start, so the problem can be fixed by picking another folder.
+                case Screen.Failed when hit == Ui.Hit.Primary && installing && !updating:
+                    ui.Screen = Screen.Welcome;
+                    break;
                 case Screen.Welcome when hit == Ui.Hit.Primary:
                 case Screen.Failed when hit == Ui.Hit.Primary && installing:
                 {
@@ -172,9 +211,15 @@ internal static class Program
         Directory.CreateDirectory(folder);
         const int scale = 2;
 
-        void Save(string name, Screen screen, double progress = 0, bool updating = false, bool toggle = false, string error = "")
+        void Save(string name, Screen screen, double progress = 0, bool updating = false, bool toggle = false, string error = "", string location = @"C:\Users\Someone\AppData\Local\Programs\LiteMixer", string locationProblem = "")
         {
-            var ui = new Ui(screen, toggle, updating, reducedMotion: false) { Progress = progress, ErrorText = error };
+            var ui = new Ui(screen, toggle, updating, reducedMotion: false)
+            {
+                Progress = progress,
+                ErrorText = error,
+                LocationText = Installer.ShortPath(location),
+                LocationProblem = locationProblem,
+            };
             ui.Settle(7.5);
             Gfx.RenderToPng(Ui.Width * scale, Ui.Height * scale, scale, ui.Draw, Path.Combine(folder, name + ".png"));
         }
@@ -187,6 +232,9 @@ internal static class Program
         Save("6-remove", Screen.ConfirmRemove);
         Save("7-removing", Screen.Removing, progress: 0.4);
         Save("8-removed", Screen.Removed);
+        Save("9-custom-folder", Screen.Welcome, toggle: true, location: @"D:\Apps\LiteMixer");
+        Save("10-folder-problem", Screen.Welcome, toggle: true, locationProblem: "That folder has other files. Pick another.");
+        Save("11-longest-problem", Screen.Welcome, toggle: true, locationProblem: "Windows won't allow that folder. Pick another.");
     }
 }
 

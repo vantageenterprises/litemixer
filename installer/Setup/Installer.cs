@@ -19,8 +19,122 @@ internal static unsafe partial class Installer
 
     public static volatile float Progress;
 
-    public static string InstallDir => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "LiteMixer");
+    const string AppFolderName = "LiteMixer";
+    static string? _installDir;
+
+    public static string DefaultDir => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", AppFolderName);
+
+    /// <summary>
+    /// Where the app lives: the chosen folder, or the one recorded at install time. Read once and kept, because
+    /// uninstalling deletes the record partway through and must still remove the right folder.
+    /// </summary>
+    public static string InstallDir
+    {
+        get => _installDir ??= RecordedDir() ?? DefaultDir;
+        set => _installDir = value;
+    }
+
+    static string? RecordedDir()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(UninstallKey);
+            return key?.GetValue("InstallLocation") is string recorded && IsAppFolderPath(recorded) ? recorded : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Every install ends in a folder of its own called LiteMixer. Anything else is never trusted as one.</summary>
+    internal static bool IsAppFolderPath(string path) =>
+        Path.IsPathFullyQualified(path) &&
+        AppFolderName.Equals(Path.GetFileName(Path.TrimEndingDirectorySeparator(path)), StringComparison.OrdinalIgnoreCase);
+
+    static bool HasApp(string folder) => File.Exists(Path.Combine(folder, "LiteMixer.exe"));
+
+    /// <summary>The folder to install into for a folder the user picked. Always one of its own, because installing replaces it whole.</summary>
+    public static string TargetFor(string picked)
+    {
+        var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(picked));
+        return AppFolderName.Equals(Path.GetFileName(full), StringComparison.OrdinalIgnoreCase)
+            ? full
+            : Path.Combine(full, AppFolderName);
+    }
+
+    /// <summary>Why the app can't be installed in this folder, or null when it can. Short enough for one line of the installer.</summary>
+    public static string? FolderProblem(string target)
+    {
+        const string notThisPc = "Pick a folder on a drive in this PC.";
+        const string notAllowed = "Windows won't allow that folder. Pick another.";
+        if (target.Length > 180) return "That path is too long. Pick a shorter one.";
+        if (target.StartsWith(@"\\", StringComparison.Ordinal)) return notThisPc;
+        try
+        {
+            if (Path.GetPathRoot(target) is not { Length: > 0 } root || new DriveInfo(root).DriveType != DriveType.Fixed) return notThisPc;
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return notThisPc;
+        }
+
+        var windows = Path.TrimEndingDirectorySeparator(Environment.GetFolderPath(Environment.SpecialFolder.Windows));
+        if (windows.Length > 0 && target.StartsWith(windows + "\\", StringComparison.OrdinalIgnoreCase)) return notAllowed;
+
+        try
+        {
+            // Installing replaces these three folders whole, so none may hold anything that isn't LiteMixer.
+            if (File.Exists(target)) return "That folder has other files. Pick another.";
+            foreach (var folder in new[] { target, target + ".new", target + ".old" })
+                if (Directory.Exists(folder) && !HasApp(folder) && Directory.EnumerateFileSystemEntries(folder).Any())
+                    return "That folder has other files. Pick another.";
+            if (!CanWriteNear(target)) return notAllowed;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return notAllowed;
+        }
+        return null;
+    }
+
+    /// <summary>Tries the real thing beside the target: a folder with a file in it, removed straight away.</summary>
+    static bool CanWriteNear(string target)
+    {
+        var existing = Path.GetDirectoryName(target);
+        while (existing != null && !Directory.Exists(existing)) existing = Path.GetDirectoryName(existing);
+        if (existing == null) return false;
+
+        var probe = Path.Combine(existing, $".litemixer-check-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(probe);
+            File.WriteAllText(Path.Combine(probe, "check"), "");
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+        finally
+        {
+            try { if (Directory.Exists(probe)) Directory.Delete(probe, true); } catch { }
+        }
+    }
+
+    /// <summary>A path short enough for one line, keeping the end, which says the most.</summary>
+    public static string ShortPath(string path, int max = 34)
+    {
+        if (path.Length <= max) return path;
+        var root = Path.GetPathRoot(path) ?? "";
+        var parts = path[root.Length..].Split('\\', StringSplitOptions.RemoveEmptyEntries);
+        var tail = parts.Length > 0 ? parts[^1] : "";
+        for (int i = parts.Length - 2; i >= 0 && root.Length + parts[i].Length + tail.Length + 5 <= max; i--)
+            tail = parts[i] + "\\" + tail;
+        return tail.Length == path.Length - root.Length ? path : $"{root}...\\{tail}";
+    }
+
     static string SettingsDir => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LiteMixer");
     static string StartMenu => Environment.GetFolderPath(Environment.SpecialFolder.Programs);
@@ -83,6 +197,7 @@ internal static unsafe partial class Installer
     public static void Uninstall(bool deleteSettings)
     {
         Progress = 0;
+        var folder = InstallDir;
         StopRunningApp();
         Progress = 0.2f;
 
@@ -100,7 +215,7 @@ internal static unsafe partial class Installer
         Registry.CurrentUser.DeleteSubKeyTree(OldInnoKey, false);
         Progress = 0.4f;
 
-        DeleteFolder(InstallDir);
+        RemoveAppFolder(folder);
         Progress = 0.9f;
         if (deleteSettings) DeleteFolder(SettingsDir);
         Progress = 1;
@@ -205,6 +320,12 @@ internal static unsafe partial class Installer
                 Thread.Sleep(200);
             }
         }
+    }
+
+    /// <summary>Deletes an install, but only a folder that is clearly one, whatever the record said.</summary>
+    static void RemoveAppFolder(string folder)
+    {
+        if (IsAppFolderPath(folder) && HasApp(folder)) DeleteFolder(folder);
     }
 
     static void DeleteFolder(string folder)

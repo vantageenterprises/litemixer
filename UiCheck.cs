@@ -164,6 +164,16 @@ internal static class UiCheck
         CheckAppSorting(app, Check);
         CheckUpdatePrompt(Check, folder);
 
+        // The quick check in the menus.
+        var appMenu = new System.Windows.Controls.ContextMenu();
+        app.AddAppItems(appMenu);
+        var headers = appMenu.Items.OfType<System.Windows.Controls.MenuItem>().Select(i => i.Header as string).ToList();
+        Check("the menu has Check for updates, above Exit", headers.Contains("Check for updates") && headers.IndexOf("Check for updates") < headers.IndexOf("Exit LiteMixer"));
+        var told = PromptWindow.InformWindow(null, "Check for updates", "You're up to date (1.3).");
+        Check("an up-to-date answer has one button", told.CancelButton.Visibility == Visibility.Collapsed);
+        Save(Offscreen(told), folder, "11-up-to-date");
+        told.Close();
+
         File.WriteAllText(Path.Combine(folder, "report.txt"), report.ToString());
         Environment.Exit(report.ToString().Contains("FAIL") ? 1 : 0);
     }
