@@ -68,13 +68,13 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="&#xE7FC;" FontFamily="{StaticResource IconFont}" FontSize="13" Foreground="#1FCB9C"
+                <TextBlock Text="{Binding Game.Glyph}" FontFamily="{StaticResource IconFont}" FontSize="13" Foreground="{Binding Game.Accent}"
                            VerticalAlignment="Center"/>
                 <Slider Grid.Column="1" Style="{StaticResource BalanceSlider}" Margin="8,0"
                         Value="{Binding Balance, Mode=TwoWay}" MouseDoubleClick="Balance_Reset"
                         PreviewMouseWheel="Balance_Wheel" ToolTip="Game / Chat balance (double-click to center)"/>
-                <TextBlock Grid.Column="2" Text="&#xE8BD;" FontFamily="{StaticResource IconFont}" FontSize="13"
-                           Foreground="#3BA4F0" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" Text="{Binding Chat.Glyph}" FontFamily="{StaticResource IconFont}" FontSize="13"
+                           Foreground="{Binding Chat.Accent}" VerticalAlignment="Center"/>
             </Grid>
         </StackPanel>
     </Border>

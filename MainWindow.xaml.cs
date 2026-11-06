@@ -1,9 +1,11 @@
+using System.Collections.Specialized;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 using System.Windows.Threading;
 
 namespace LiteMixer;
@@ -23,6 +25,11 @@ public partial class MainWindow : Window
         InitializeComponent();
         UpdateBanner.DataContext = App.Current.Updater;
         RestorePosition();
+
+        PlaceBalance(animate: false);
+        NotifyCollectionChangedEventHandler onOrderChanged = (_, _) => PlaceBalance(animate: true);
+        model.ScrollChannels.CollectionChanged += onOrderChanged;
+        Closed += (_, _) => model.ScrollChannels.CollectionChanged -= onOrderChanged;
     }
 
     void UpdateBanner_Click(object sender, RoutedEventArgs e) => _ = App.Current.InstallUpdateAsync();
@@ -48,6 +55,7 @@ public partial class MainWindow : Window
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
         base.OnClosing(e);
+        EndMove(keep: false);
         if (WindowState == WindowState.Normal)
         {
             _model.Settings.WindowLeft = Left;
@@ -233,6 +241,203 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    // ---- Moving channels ----
+
+    // A column is 178 wide with a 4 gap. The list stays capturing throughout, because a moved column
+    // briefly leaves the visual tree and would lose the mouse if it held the capture itself.
+    internal const double ColumnPitch = 182;
+    const double HoldSeconds = 0.2;
+    static readonly Duration SlideTime = TimeSpan.FromMilliseconds(150);
+
+    sealed class ChannelMove(ChannelVM channel, FrameworkElement host, int origin, double grab, double startX, double startViewportX)
+    {
+        public ChannelVM Channel { get; } = channel;
+        public FrameworkElement Host { get; } = host;
+        public int Origin { get; } = origin;
+        public double Grab { get; } = grab;
+        public double StartX { get; } = startX;
+        public double StartViewportX { get; } = startViewportX;
+        public System.Diagnostics.Stopwatch Clock { get; } = System.Diagnostics.Stopwatch.StartNew();
+        public TimeSpan LastFrame { get; set; }
+        public bool Lifted { get; set; }
+    }
+
+    ChannelMove? _move;
+
+    internal bool IsMoveLifted => _move?.Lifted == true;
+    internal double BalanceLeft => Math.Min(_model.ScrollChannels.IndexOf(_model.Game), _model.ScrollChannels.IndexOf(_model.Chat)) * ColumnPitch;
+
+    void Header_Down(object sender, MouseButtonEventArgs e)
+    {
+        if (!ChannelOf(sender).CanMove || _move != null || !ChannelList.CaptureMouse()) return;
+        if (BeginMove(ChannelOf(sender), Mouse.GetPosition(ChannelStrip).X, Mouse.GetPosition(ChannelScroll).X))
+            CompositionTarget.Rendering += MoveFrame;
+        else
+            ChannelList.ReleaseMouseCapture();
+        e.Handled = true;
+    }
+
+    void ChannelList_MouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_move == null) return;
+        EndMove(keep: true);
+        e.Handled = true;
+    }
+
+    void ChannelList_LostCapture(object sender, MouseEventArgs e) => EndMove(keep: false);
+
+    protected override void OnPreviewKeyDown(KeyEventArgs e)
+    {
+        base.OnPreviewKeyDown(e);
+        if (_move == null || e.Key != Key.Escape) return;
+        EndMove(keep: false);
+        e.Handled = true;
+    }
+
+    void MoveFrame(object? sender, EventArgs e)
+    {
+        if (_move is not { } move) return;
+        var now = move.Clock.Elapsed;
+        double seconds = (now - move.LastFrame).TotalSeconds;
+        move.LastFrame = now;
+        UpdateMove(Mouse.GetPosition(ChannelStrip).X, Mouse.GetPosition(ChannelScroll).X, seconds, now.TotalSeconds >= HoldSeconds);
+    }
+
+    internal bool BeginMove(ChannelVM channel, double stripX, double viewportX)
+    {
+        if (!channel.CanMove || _move != null) return false;
+        if (ChannelList.ItemContainerGenerator.ContainerFromItem(channel) is not FrameworkElement host) return false;
+        int index = _model.ScrollChannels.IndexOf(channel);
+        _move = new ChannelMove(channel, host, index, stripX - index * ColumnPitch, stripX, viewportX);
+        return true;
+    }
+
+    /// <summary>One step of a move: pointer positions along the strip and the visible area, and the time since the last step.</summary>
+    internal void UpdateMove(double stripX, double viewportX, double seconds, bool held)
+    {
+        if (_move is not { } move) return;
+        if (!move.Lifted)
+        {
+            if (!held && Math.Abs(stripX - move.StartX) < SystemParameters.MinimumHorizontalDragDistance) return;
+            Lift(move);
+        }
+
+        // Only scrolls once the pointer has travelled toward that edge, so grabbing a column near the edge doesn't.
+        double speed = AutoScrollSpeed(viewportX, ChannelScroll.ViewportWidth);
+        if ((speed < 0 && viewportX < move.StartViewportX) || (speed > 0 && viewportX > move.StartViewportX))
+            ChannelScroll.ScrollToHorizontalOffset(ChannelScroll.HorizontalOffset + speed * seconds);
+
+        int last = _model.ScrollChannels.Count - 1;
+        double left = Math.Clamp(stripX - move.Grab, 0, last * ColumnPitch);
+        int index = (int)Math.Round(left / ColumnPitch);
+        PlaceAt(move.Channel, index);
+        TransformOf(move.Host).X = left - index * ColumnPitch;
+    }
+
+    /// <summary>How fast to scroll, in pixels per second, for a pointer this far along the visible area. Past either edge is full speed.</summary>
+    internal static double AutoScrollSpeed(double x, double width)
+    {
+        const double edge = 56, fastest = 900;
+        double depth = x < edge ? x - edge : x > width - edge ? x - (width - edge) : 0;
+        return Math.Clamp(depth / edge, -1, 1) * fastest;
+    }
+
+    void Lift(ChannelMove move)
+    {
+        move.Lifted = true;
+        if (_scrollAnimation != null)
+        {
+            CompositionTarget.Rendering -= _scrollAnimation;
+            _scrollAnimation = null;
+        }
+        var transform = TransformOf(move.Host);
+        double shown = transform.X;
+        transform.BeginAnimation(TranslateTransform.XProperty, null);
+        transform.X = shown;
+        Panel.SetZIndex(move.Host, 1);
+        move.Host.Effect = new DropShadowEffect { BlurRadius = 18, ShadowDepth = 0, Opacity = 0.55 };
+        if (FindByName(move.Host, "FlashRing") is { } ring)
+        {
+            ring.BeginAnimation(OpacityProperty, null);
+            ring.Opacity = 1;
+        }
+        Mouse.OverrideCursor = Cursors.SizeWE;
+    }
+
+    /// <summary>Moves a channel, sliding the columns it passes from where they were to their new places.</summary>
+    void PlaceAt(ChannelVM channel, int index)
+    {
+        int current = _model.ScrollChannels.IndexOf(channel);
+        if (index == current) return;
+        double shift = index > current ? ColumnPitch : -ColumnPitch;
+        var passed = _model.ScrollChannels
+            .Skip(Math.Min(current, index))
+            .Take(Math.Abs(index - current) + 1)
+            .Where(c => c != channel)
+            .ToList();
+        _model.MoveChannel(channel, index);
+        foreach (var other in passed)
+            if (ChannelList.ItemContainerGenerator.ContainerFromItem(other) is FrameworkElement host)
+                SlideHome(host, shift);
+    }
+
+    static TranslateTransform TransformOf(FrameworkElement host)
+    {
+        if (host.RenderTransform is not TranslateTransform transform) host.RenderTransform = transform = new TranslateTransform();
+        return transform;
+    }
+
+    /// <summary>Slides a column to its layout position, starting from where it shows now plus an extra offset.</summary>
+    static void SlideHome(FrameworkElement host, double extra, Action? done = null)
+    {
+        var transform = TransformOf(host);
+        double start = transform.X + extra;
+        transform.BeginAnimation(TranslateTransform.XProperty, null);
+        transform.X = 0;
+        if (!SystemParameters.ClientAreaAnimation || start == 0)
+        {
+            done?.Invoke();
+            return;
+        }
+        var slide = new DoubleAnimation(start, 0, SlideTime) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+        if (done != null) slide.Completed += (_, _) => done();
+        transform.BeginAnimation(TranslateTransform.XProperty, slide);
+    }
+
+    /// <summary>Finishes a move. keep=true saves the new order; false puts the channel back where it started.</summary>
+    internal void EndMove(bool keep)
+    {
+        if (_move is not { } move) return;
+        _move = null; // Cleared first: releasing the capture below calls back into this.
+        CompositionTarget.Rendering -= MoveFrame;
+        if (ChannelList.IsMouseCaptured) ChannelList.ReleaseMouseCapture();
+        if (!move.Lifted) return;
+
+        Mouse.OverrideCursor = null;
+        move.Host.Effect = null;
+        if (FindByName(move.Host, "FlashRing") is { } ring) ring.Opacity = 0;
+
+        int current = _model.ScrollChannels.IndexOf(move.Channel);
+        if (!keep) PlaceAt(move.Channel, move.Origin);
+        double extra = keep ? 0 : (current - move.Origin) * ColumnPitch;
+        SlideHome(move.Host, extra, () =>
+        {
+            if (_move?.Host != move.Host) Panel.SetZIndex(move.Host, 0);
+        });
+        if (keep && current != move.Origin) _model.SaveChannelOrder();
+    }
+
+    void PlaceBalance(bool animate)
+    {
+        BalanceShift.BeginAnimation(TranslateTransform.XProperty, null);
+        if (!animate || !SystemParameters.ClientAreaAnimation)
+        {
+            BalanceShift.X = BalanceLeft;
+            return;
+        }
+        BalanceShift.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(BalanceLeft, SlideTime) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+    }
+
     // ---- Menus ----
 
     void AppMenu_Click(object sender, RoutedEventArgs e)
@@ -254,9 +459,10 @@ public partial class MainWindow : Window
         if (channel.Kind == ChannelKind.Output && channel != _model.DefaultChannel)
             menu.Items.Add(Menus.Item($"Move all apps to {_model.DefaultChannel.DisplayName}", () => _model.UnassignChannel(channel),
                 enabled: channel.Apps.Count > 0));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(Menus.Item("Color and icon...", () => ChannelLookWindow.Ask(this, _model, channel)));
         if (channel.IsCustom)
         {
-            menu.Items.Add(new Separator());
             menu.Items.Add(Menus.Item("Rename channel...", () => RenameChannel(channel)));
             menu.Items.Add(Menus.Item("Delete channel...", () => DeleteChannel(channel)));
         }

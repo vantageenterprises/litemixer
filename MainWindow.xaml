@@ -17,17 +17,27 @@
             <Border Background="{StaticResource PanelBg}">
                 <StackPanel>
                     <!-- Header -->
-                    <Grid Height="42" Background="{StaticResource HeaderBg}">
+                    <Grid Height="42" Background="{StaticResource HeaderBg}" ToolTip="{Binding HeaderTip}"
+                          MouseLeftButtonDown="Header_Down">
+                        <Grid.Style>
+                            <Style TargetType="Grid">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding CanMove}" Value="True">
+                                        <Setter Property="Cursor" Value="SizeWE"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Grid.Style>
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center"
                                     Margin="0,0,16,0">
                             <TextBlock Text="{Binding Glyph}" FontFamily="{StaticResource IconFont}" FontSize="17"
                                        Foreground="{Binding Accent}" VerticalAlignment="Center" Margin="0,0,9,0"/>
                             <TextBlock Text="{Binding Title}" FontSize="15" FontWeight="Bold" MaxWidth="96"
-                                       TextTrimming="CharacterEllipsis" ToolTip="{Binding DisplayName}"
+                                       TextTrimming="CharacterEllipsis"
                                        Foreground="{Binding Accent}" VerticalAlignment="Center"/>
                         </StackPanel>
                         <Button Style="{StaticResource IconButton}" Content="&#xE713;" HorizontalAlignment="Right"
-                                Margin="0,0,9,0" Click="Gear_Click" ToolTip="Channel options"/>
+                                Margin="0,0,9,0" Click="Gear_Click" ToolTip="Channel options" Cursor="Arrow"/>
                     </Grid>
 
                     <!-- Device row -->
@@ -166,7 +176,8 @@
                           PreviewMouseWheel="ChannelScroll_Wheel">
                 <StackPanel x:Name="ChannelStrip" HorizontalAlignment="Left">
                     <ItemsControl x:Name="ChannelList" ItemsSource="{Binding ScrollChannels}"
-                                  ItemTemplate="{StaticResource ChannelTemplate}">
+                                  ItemTemplate="{StaticResource ChannelTemplate}"
+                                  MouseLeftButtonUp="ChannelList_MouseUp" LostMouseCapture="ChannelList_LostCapture">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <StackPanel Orientation="Horizontal"/>
@@ -179,9 +190,12 @@
                         </ItemsControl.ItemContainerStyle>
                     </ItemsControl>
 
-                    <!-- Balance sits under Game and Chat, the first two channels -->
+                    <!-- Balance sits under whichever of Game and Chat is further left, and follows them when they move -->
                     <Border Width="360" HorizontalAlignment="Left" Background="#262A31"
                             CornerRadius="0,0,6,6" Padding="14,8,14,10">
+                        <Border.RenderTransform>
+                            <TranslateTransform x:Name="BalanceShift"/>
+                        </Border.RenderTransform>
                         <StackPanel>
                             <TextBlock Text="GAME / CHAT" FontSize="11" FontWeight="Bold" HorizontalAlignment="Center"
                                        Foreground="{StaticResource SoftTextBrush}"/>
@@ -191,13 +205,13 @@
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Text="&#xE7FC;" FontFamily="{StaticResource IconFont}" FontSize="15"
-                                           Foreground="#1FCB9C" VerticalAlignment="Center" ToolTip="More game"/>
+                                <TextBlock Text="{Binding Game.Glyph}" FontFamily="{StaticResource IconFont}" FontSize="15"
+                                           Foreground="{Binding Game.Accent}" VerticalAlignment="Center" ToolTip="More game"/>
                                 <Slider Grid.Column="1" Style="{StaticResource BalanceSlider}" Margin="12,0"
                                         Value="{Binding Balance, Mode=TwoWay}" MouseDoubleClick="Balance_Reset"
                                         PreviewMouseWheel="Balance_Wheel" ToolTip="Double-click to center"/>
-                                <TextBlock Grid.Column="2" Text="&#xE8BD;" FontFamily="{StaticResource IconFont}" FontSize="15"
-                                           Foreground="#3BA4F0" VerticalAlignment="Center" ToolTip="More chat"/>
+                                <TextBlock Grid.Column="2" Text="{Binding Chat.Glyph}" FontFamily="{StaticResource IconFont}" FontSize="15"
+                                           Foreground="{Binding Chat.Accent}" VerticalAlignment="Center" ToolTip="More chat"/>
                             </Grid>
                         </StackPanel>
                     </Border>

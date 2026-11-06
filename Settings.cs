@@ -23,8 +23,12 @@ public sealed class AppSettings
     public double MicVolume { get; set; } = -1;
     public bool? MicMuted { get; set; }
     public Dictionary<string, ChannelSettings> Channels { get; set; } = new();
-    /// <summary>User-created channels in display order; they sit between Media and Aux.</summary>
+    /// <summary>User-created channels. <see cref="ChannelOrder"/> decides where they appear.</summary>
     public List<CustomChannel> CustomChannels { get; set; } = new();
+    /// <summary>Channel ids between Master and Mic, left to right. Empty until the order first changes.</summary>
+    public List<string> ChannelOrder { get; set; } = new();
+    /// <summary>Colors and icons the user picked (channel id to look). Missing means the channel's default.</summary>
+    public Dictionary<string, ChannelLook> Looks { get; set; } = new();
     /// <summary>App key (lowercase exe name) to channel id.</summary>
     public Dictionary<string, string> Assignments { get; set; } = new();
     /// <summary>Channel for every app without an explicit assignment (games, launchers, anything new).</summary>
@@ -60,6 +64,14 @@ public sealed class AppSettings
     public bool CompactOpen { get; set; }
     public double? CompactLeft { get; set; }
     public double? CompactTop { get; set; }
+}
+
+public sealed class ChannelLook
+{
+    /// <summary>"#RRGGBB", or null for the channel's default color.</summary>
+    public string? Color { get; set; }
+    /// <summary>One icon font character, or null for the channel's default icon.</summary>
+    public string? Glyph { get; set; }
 }
 
 public sealed class CustomChannel

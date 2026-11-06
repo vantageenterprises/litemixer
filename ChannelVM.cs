@@ -51,32 +51,47 @@ public sealed class ChannelVM : ObservableObject
     string _deviceTooltip = "";
     string _deviceGlyph;
     string _emptyHint = "";
+    string _glyph;
+    Brush _accent;
+    Brush _chipBrush;
+    Brush _chipForeground;
 
     public ChannelVM(string id, string title, string glyph, string accent, ChannelKind kind, string? customName = null)
     {
         Id = id;
-        Glyph = glyph;
+        DefaultGlyph = _glyph = glyph;
         Kind = kind;
         IsCustom = customName != null;
         _title = customName?.ToUpperInvariant() ?? title;
         _displayName = customName ?? char.ToUpperInvariant(title[0]) + title[1..].ToLowerInvariant();
-        var color = (Color)ColorConverter.ConvertFromString(accent);
-        Accent = Freeze(new SolidColorBrush(color));
-        ChipBrush = kind == ChannelKind.Master ? Unrouted : Accent;
-        bool brightCustom = IsCustom && (0.299 * color.R + 0.587 * color.G + 0.114 * color.B) / 255 > 0.5;
-        ChipForeground = kind == ChannelKind.Master || id is "game" or "mic" || brightCustom ? Ink : White;
+        DefaultColor = ParseColor(accent) ?? Colors.Gray;
+        _accent = _chipBrush = _chipForeground = White;
+        SetLook(null, null);
         _deviceGlyph = kind == ChannelKind.Mic ? "" : "";
     }
 
     public string Id { get; }
     public string Title { get => _title; private set => Set(ref _title, value); }
-    public string DisplayName { get => _displayName; private set => Set(ref _displayName, value); }
+    public string DisplayName
+    {
+        get => _displayName;
+        private set
+        {
+            if (Set(ref _displayName, value)) OnPropertyChanged(nameof(HeaderTip));
+        }
+    }
+    /// <summary>Master and Mic stay pinned; every channel between them can be dragged to a new place.</summary>
+    public bool CanMove => Kind == ChannelKind.Output;
+    public string HeaderTip => CanMove ? $"{_displayName}. Hold and drag to move." : _displayName;
     public bool IsCustom { get; }
-    public string Glyph { get; }
+    public string Glyph { get => _glyph; private set => Set(ref _glyph, value); }
+    public string DefaultGlyph { get; }
+    public Color DefaultColor { get; }
+    public Color AccentColor => ((SolidColorBrush)_accent).Color;
     public ChannelKind Kind { get; }
-    public Brush Accent { get; }
-    public Brush ChipBrush { get; }
-    public Brush ChipForeground { get; }
+    public Brush Accent { get => _accent; private set => Set(ref _accent, value); }
+    public Brush ChipBrush { get => _chipBrush; private set => Set(ref _chipBrush, value); }
+    public Brush ChipForeground { get => _chipForeground; private set => Set(ref _chipForeground, value); }
     public bool AcceptsDrop => Kind == ChannelKind.Output;
     public string AppsLabel => "Apps";
     public ObservableCollection<AppChip> Apps { get; } = new();
@@ -146,6 +161,31 @@ public sealed class ChannelVM : ObservableObject
     public string DeviceName { get => _deviceName; set => Set(ref _deviceName, value); }
     public string DeviceTooltip { get => _deviceTooltip; set => Set(ref _deviceTooltip, value); }
     public string DeviceGlyph { get => _deviceGlyph; set => Set(ref _deviceGlyph, value); }
+
+    /// <summary>"#RRGGBB" with or without the #, or null if it isn't one.</summary>
+    public static Color? ParseColor(string? text)
+    {
+        text = text?.Trim().TrimStart('#');
+        if (text is not { Length: 6 } || !uint.TryParse(text, System.Globalization.NumberStyles.AllowHexSpecifier, null, out var rgb)) return null;
+        return Color.FromRgb((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
+    }
+
+    public static string ToHex(Color color) => $"#{color.R:X2}{color.G:X2}{color.B:X2}";
+
+    /// <summary>Applies a color and icon. Null, or a color that can't be read, means the channel's default.</summary>
+    internal void SetLook(string? color, string? glyph)
+    {
+        Glyph = string.IsNullOrEmpty(glyph) ? DefaultGlyph : glyph;
+        var chosen = ParseColor(color) ?? DefaultColor;
+        Accent = Freeze(new SolidColorBrush(chosen));
+        OnPropertyChanged(nameof(AccentColor));
+        ChipBrush = Kind == ChannelKind.Master ? Unrouted : Accent;
+        // The built-in colors keep their hand-picked chip text; everything else picks whichever text reads better.
+        bool bright = (0.299 * chosen.R + 0.587 * chosen.G + 0.114 * chosen.B) / 255 > 0.5;
+        bool builtInDefault = !IsCustom && chosen == DefaultColor;
+        bool inkText = Kind == ChannelKind.Master || (builtInDefault ? Id is "game" or "mic" : bright);
+        ChipForeground = inkText ? Ink : White;
+    }
 
     internal void Rename(string name)
     {

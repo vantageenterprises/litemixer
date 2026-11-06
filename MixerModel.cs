@@ -60,11 +60,12 @@ public sealed class MixerModel : ObservableObject, IDisposable
         Master = new("master", "MASTER", "", "#5B6CF5", ChannelKind.Master);
         Game = new("game", "GAME", "", "#1FCB9C", ChannelKind.Output);
         Chat = new("chat", "CHAT", "", "#3BA4F0", ChannelKind.Output);
-        Media = new("media", "MEDIA", "", "#F2468E", ChannelKind.Output);
-        Aux = new("aux", "AUX", "", "#9D5CF5", ChannelKind.Output);
+        // Video and Music keep the ids "media" and "aux", so saved levels, routing and assignments carry over.
+        Media = new("media", "VIDEO","", "#F2468E", ChannelKind.Output);
+        Aux = new("aux", "MUSIC","", "#9D5CF5", ChannelKind.Output);
         Mic = new("mic", "MIC", "", "#F5A623", ChannelKind.Mic);
         var customs = _s.CustomChannels.Select(c => new ChannelVM(c.Id, c.Name, CustomGlyph, c.Color, ChannelKind.Output, c.Name)).ToList();
-        _outputs = [Game, Chat, Media, .. customs, Aux];
+        _outputs = InSavedOrder([Game, Chat, Media, .. customs, Aux]);
         _cappable = [Master, .. _outputs];
         Channels = new([.. _cappable, Mic]);
         ScrollChannels = new(_outputs);
@@ -72,6 +73,8 @@ public sealed class MixerModel : ObservableObject, IDisposable
 
         foreach (var channel in _cappable)
             if (_s.Caps.TryGetValue(channel.Id, out var cap)) channel.Cap = cap;
+        foreach (var channel in Channels)
+            if (_s.Looks.TryGetValue(channel.Id, out var look)) channel.SetLook(look.Color, look.Glyph);
 
         Master.SetSilently(_s.MasterVolume, _s.MasterMuted);
         foreach (var channel in _outputs)
@@ -355,14 +358,63 @@ public sealed class MixerModel : ObservableObject, IDisposable
         _applied[channel] = level;
 
         _byId[channel.Id] = channel;
-        _outputs.Insert(_outputs.IndexOf(Aux), channel);
-        _cappable.Insert(_cappable.IndexOf(Aux), channel);
-        Channels.Insert(Channels.IndexOf(Aux), channel);
-        ScrollChannels.Insert(ScrollChannels.IndexOf(Aux), channel);
+        // New channels open at the far right, next to Mic.
+        _outputs.Add(channel);
+        _cappable.Add(channel);
+        Channels.Insert(Channels.IndexOf(Mic), channel);
+        ScrollChannels.Add(channel);
 
+        SaveChannelOrder();
+        return channel;
+    }
+
+    /// <summary>The default layout, rearranged by the saved order. Anything the order doesn't list goes at the end.</summary>
+    List<ChannelVM> InSavedOrder(List<ChannelVM> channels)
+    {
+        var ordered = _s.ChannelOrder.Distinct()
+            .Select(id => channels.FirstOrDefault(c => c.Id == id))
+            .OfType<ChannelVM>()
+            .ToList();
+        ordered.AddRange(channels.Except(ordered));
+        return ordered;
+    }
+
+    /// <summary>Moves a channel between Master and Mic. Only its place changes, never any audio.</summary>
+    public void MoveChannel(ChannelVM channel, int index)
+    {
+        int from = ScrollChannels.IndexOf(channel);
+        if (from < 0) return;
+        index = Math.Clamp(index, 0, ScrollChannels.Count - 1);
+        if (index == from) return;
+
+        _outputs.RemoveAt(from);
+        _outputs.Insert(index, channel);
+        _cappable.RemoveAt(from + 1);
+        _cappable.Insert(index + 1, channel);
+        Channels.Move(from + 1, index + 1);
+        ScrollChannels.Move(from, index);
+    }
+
+    /// <summary>Saves a channel's color and icon. Values matching its defaults aren't stored, so it keeps following them.</summary>
+    public void SaveLook(ChannelVM channel, System.Windows.Media.Color color, string glyph)
+    {
+        var look = new ChannelLook
+        {
+            Color = color == channel.DefaultColor ? null : ChannelVM.ToHex(color),
+            Glyph = glyph == channel.DefaultGlyph ? null : glyph,
+        };
+        if (look.Color == null && look.Glyph == null) _s.Looks.Remove(channel.Id);
+        else _s.Looks[channel.Id] = look;
+        channel.SetLook(look.Color, look.Glyph);
         SaveNow();
         ChannelsChanged?.Invoke();
-        return channel;
+    }
+
+    public void SaveChannelOrder()
+    {
+        _s.ChannelOrder = _outputs.Select(c => c.Id).ToList();
+        SaveNow();
+        ChannelsChanged?.Invoke();
     }
 
     public void RenameChannel(ChannelVM channel, string name)
@@ -387,6 +439,7 @@ public sealed class MixerModel : ObservableObject, IDisposable
         _s.CustomChannels.RemoveAll(c => c.Id == channel.Id);
         _s.Channels.Remove(channel.Id);
         _s.Caps.Remove(channel.Id);
+        _s.Looks.Remove(channel.Id);
         _s.DuckChannels.Remove(channel.Id);
         _byId.Remove(channel.Id);
         _applied.Remove(channel);
@@ -396,8 +449,7 @@ public sealed class MixerModel : ObservableObject, IDisposable
         ScrollChannels.Remove(channel);
 
         UpdateApps();
-        SaveNow();
-        ChannelsChanged?.Invoke();
+        SaveChannelOrder();
     }
 
     // ---- Profiles ----

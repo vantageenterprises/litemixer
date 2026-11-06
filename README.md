@@ -5,17 +5,18 @@ with no drivers and no account.
 
 **[Download the latest version](https://github.com/vantageenterprises/litemixer/releases/latest/download/LiteMixer-Setup.exe)** ([all releases](https://github.com/vantageenterprises/litemixer/releases))
 
-![The LiteMixer window: Master, Game, Chat, Media, Aux and Mic channels, each with a fader, mute, output device and apps](docs/screenshots/mixer.png)
+![The LiteMixer window: Master, Game, Chat, Video, Music and Mic channels, each with a fader, mute, output device and apps](docs/screenshots/mixer.png)
 
 ## What it does
 
-- **Channels:** Master, Game, Chat, Media, Aux and Mic, plus as many named channels of your own as you like.
+- **Channels:** Master, Game, Chat, Video, Music and Mic, plus as many named channels of your own as you like.
+- **Make it yours:** hold a channel's name and drag to rearrange it, and give any channel its own color and icon.
 - **Per-app routing:** drag any app into a channel. Each channel has its own volume, mute and output device. New
   apps and games open in Game by default, and you can change that.
 - **Game / Chat balance:** one slider between the two channels, in the mixer or on a hotkey.
 - **Global hotkeys** for mic mute, volumes and balance that work while a game has focus.
 - **Volume safety:** a cap per channel, and big increases fade in instead of jumping.
-- **Auto-duck** (off by default): lowers Game and Media while someone talks in Chat.
+- **Auto-duck** (off by default): lowers Game and Video while someone talks in Chat.
 - **Compact mixer:** a small always-on-top window with every fader, mute and the Game / Chat balance, so you can adjust
   levels over a game. Open it with Ctrl+Alt+K or from the menu; it remembers where you put it.
 - **Per-app volume** inside a channel, **hidden apps**, and **profiles** for one-click setups.
@@ -23,13 +24,13 @@ with no drivers and no account.
 
 ## Screenshots
 
-Add as many named channels as you like, and scroll or jump between them:
+Add as many named channels as you like, drag them into any order, and scroll or jump between them:
 
 ![Custom channels named Streaming, Podcast and Recording in the mixer, with a horizontal scrollbar](docs/screenshots/custom-channels.png)
 
-| Compact mixer | Settings |
-| --- | --- |
-| <img src="docs/screenshots/compact.png" width="366" alt="The small always-on-top compact mixer"> | <img src="docs/screenshots/settings.png" width="420" alt="Settings: global hotkeys, volume caps and auto-duck"> |
+| Color and icon | Compact mixer | Settings |
+| --- | --- | --- |
+| <img src="docs/screenshots/color-and-icon.png" width="300" alt="Choosing a channel's icon and color, with a color square, hue bar, swatches and hex code"> | <img src="docs/screenshots/compact.png" width="280" alt="The small always-on-top compact mixer"> | <img src="docs/screenshots/settings.png" width="300" alt="Settings: global hotkeys, volume caps and auto-duck"> |
 
 Apps and devices shown are sample names.
 

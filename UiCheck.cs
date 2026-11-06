@@ -1,5 +1,6 @@
 using System.Text;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -62,7 +63,7 @@ internal static class UiCheck
         var streaming = model.AddChannel("Streaming");
         var browser = model.AddChannel("Browser Games");
         var names = string.Join(",", model.ScrollChannels.Select(c => c.Id.StartsWith("custom-") ? c.DisplayName : c.Id));
-        Check($"new channels sit left of aux, oldest first: {names}", names == "game,chat,media,Streaming,Browser Games,aux");
+        Check($"new channels open right of aux, oldest first: {names}", names == "game,chat,media,aux,Streaming,Browser Games");
         Check("Master first and Mic last in the full list", model.Channels[0] == model.Master && model.Channels[^1] == model.Mic);
         Check($"new channel starts at the default channel's level ({streaming.Volume})", streaming.Volume == 40);
         Check("custom channels get different colors", streaming.Accent.ToString() != browser.Accent.ToString());
@@ -93,7 +94,7 @@ internal static class UiCheck
         kept.Volume = 22;
         var reloaded = new MixerModel(settings);
         var again = reloaded.Channels.FirstOrDefault(c => c.DisplayName == "Reload Test");
-        Check("channel survives a restart with its level and place", again?.Volume == 22 && reloaded.ScrollChannels[^1] == reloaded.Aux && reloaded.ScrollChannels[^2] == again);
+        Check("channel survives a restart with its level and place", again?.Volume == 22 && reloaded.ScrollChannels[^1] == again && reloaded.ScrollChannels[^2] == reloaded.Aux);
         model.DeleteChannel(kept);
 
         // ---- Updater decisions ----
@@ -155,8 +156,244 @@ internal static class UiCheck
         Pump();
         Save(settingsWindow, folder, "7-settings");
 
+        Check("Media and Aux now read Video and Music", model.Media.Title == "VIDEO" && model.Media.DisplayName == "Video" && model.Aux.Title == "MUSIC" && model.Aux.DisplayName == "Music");
+        Check("Video and Music keep their saved ids", model.Media.Id == "media" && model.Aux.Id == "aux");
+        CheckMovingChannels(app, Check, folder);
+        CheckChannelLooks(app, Check, folder);
+
         File.WriteAllText(Path.Combine(folder, "report.txt"), report.ToString());
         Environment.Exit(report.ToString().Contains("FAIL") ? 1 : 0);
+    }
+
+    static void CheckChannelLooks(App app, Action<string, bool> check, string folder)
+    {
+        var settings = new AppSettings { CustomChannels = [new() { Id = "custom-a", Name = "Alpha", Color = "#22D3EE" }] };
+        var model = new MixerModel(settings);
+        app.SetModelForCheck(model);
+        var game = model.Game;
+        var startGlyph = game.Glyph;
+        var startColor = game.AccentColor;
+
+        // Every icon must exist in the icon fonts of both Windows 10 and 11, or it would draw as an empty box.
+        foreach (var family in new[] { "Segoe MDL2 Assets", "Segoe Fluent Icons" })
+        {
+            var typeface = new Typeface(new FontFamily(family), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+            if (!typeface.TryGetGlyphTypeface(out var glyphs) || !glyphs.FamilyNames.Values.Contains(family)) continue;
+            var missing = ChannelLookWindow.Icons.Where(i => !glyphs.CharacterToGlyphMap.ContainsKey(i[0])).Select(i => $"{(int)i[0]:X4}").ToList();
+            check($"all icons exist in {family} (missing: {string.Join(" ", missing)})", missing.Count == 0);
+        }
+        check("the icon list has no duplicates", ChannelLookWindow.Icons.Distinct().Count() == ChannelLookWindow.Icons.Length);
+
+        // Color math round trips, so the picker lands on the color it was given.
+        bool roundTrips = true;
+        foreach (var hex in new[] { "#1FCB9C", "#3BA4F0", "#F2468E", "#9D5CF5", "#F5A623", "#000000", "#FFFFFF", "#808080", "#FF0000", "#FF00FF" })
+        {
+            var color = ChannelVM.ParseColor(hex)!.Value;
+            var (h, s, v) = ChannelLookWindow.ToHsv(color);
+            var back = ChannelLookWindow.FromHsv(h, s, v);
+            roundTrips &= Math.Abs(back.R - color.R) <= 1 && Math.Abs(back.G - color.G) <= 1 && Math.Abs(back.B - color.B) <= 1;
+        }
+        check("the color picker math round trips", roundTrips);
+        check("hex reads with or without #", ChannelVM.ParseColor("#FF8000") == ChannelVM.ParseColor("ff8000") && ChannelVM.ParseColor("FF8000") != null);
+        check("bad hex is refused", ChannelVM.ParseColor("nope") == null && ChannelVM.ParseColor("#12345") == null && ChannelVM.ParseColor("GGGGGG") == null && ChannelVM.ParseColor(null) == null);
+        check("near-black is flagged, normal colors aren't", ChannelLookWindow.IsHardToRead(Colors.Black) && !ChannelLookWindow.IsHardToRead(startColor));
+
+        int audioCalls = 0, listChanges = 0;
+        foreach (var channel in model.Channels)
+        {
+            channel.VolumeChanged = _ => audioCalls++;
+            channel.MutedChanged = _ => audioCalls++;
+        }
+        model.ChannelsChanged += () => listChanges++;
+
+        // The dialog: live changes, then cancel.
+        var red = ChannelVM.ParseColor("#FF2020")!.Value;
+        var dialog = Offscreen(new ChannelLookWindow(model, game, null));
+        Pump();
+        dialog.SetColor(red);
+        dialog.SetGlyph(ChannelLookWindow.Icons[5]);
+        check("changes show on the channel right away", game.AccentColor == red && game.Glyph == ChannelLookWindow.Icons[5]);
+        check("the hex box follows the choice", dialog.HexInput.Text == "#FF2020");
+        check("nothing is saved before Save", settings.Looks.Count == 0 && listChanges == 0);
+        Pump();
+        Shot(dialog, folder, "8-color-and-icon");
+        dialog.Close();
+        check("Cancel puts the old look back", game.AccentColor == startColor && game.Glyph == startGlyph && settings.Looks.Count == 0);
+
+        // Picking from the color areas and typing hex.
+        dialog = Offscreen(new ChannelLookWindow(model, game, null));
+        Pump();
+        dialog.SetHue(0);
+        dialog.SetShade(1, 0);
+        check($"top right of the square at hue 0 is pure red ({ChannelVM.ToHex(game.AccentColor)})", game.AccentColor == Color.FromRgb(255, 0, 0));
+        dialog.SetShade(0, 0);
+        check($"top left is white ({ChannelVM.ToHex(game.AccentColor)})", game.AccentColor == Colors.White);
+        dialog.SetShade(0.5, 1);
+        check($"the bottom is black ({ChannelVM.ToHex(game.AccentColor)})", game.AccentColor == Colors.Black);
+        dialog.SetShade(5, -5);
+        check("positions past the edge stay in range", game.AccentColor == Color.FromRgb(255, 0, 0));
+        dialog.HexInput.Text = "#123ABC";
+        check($"typing a hex code sets the color ({ChannelVM.ToHex(game.AccentColor)})", game.AccentColor == ChannelVM.ParseColor("#123ABC"));
+        dialog.HexInput.Text = "#12";
+        check("a half-typed hex code changes nothing", game.AccentColor == ChannelVM.ParseColor("#123ABC"));
+
+        // Save.
+        dialog.SetColor(red);
+        dialog.SetGlyph(ChannelLookWindow.Icons[5]);
+        dialog.Save();
+        check("Save keeps the look and stores it", game.AccentColor == red && settings.Looks["game"].Color == "#FF2020" && settings.Looks["game"].Glyph == ChannelLookWindow.Icons[5] && listChanges == 1);
+        var chip = ChannelVM.ParseColor("#FF2020")!.Value;
+        check("Game's chips follow its color", ((SolidColorBrush)game.ChipBrush).Color == chip);
+
+        var white = ChannelVM.ParseColor("#FFFFFF")!.Value;
+        model.SaveLook(model.Media, white, model.Media.DefaultGlyph);
+        check("light colors get dark chip text", ((SolidColorBrush)model.Media.ChipForeground).Color != Colors.White);
+        model.SaveLook(model.Media, Color.FromRgb(20, 20, 60), model.Media.DefaultGlyph);
+        check("dark colors get light chip text", ((SolidColorBrush)model.Media.ChipForeground).Color == Colors.White);
+        model.SaveLook(model.Media, model.Media.DefaultColor, model.Media.DefaultGlyph);
+        check("the default look stores nothing", !settings.Looks.ContainsKey("media"));
+
+        // Master and Mic take a look too; Master's chips stay grey because they mean "not routed".
+        model.SaveLook(model.Master, red, model.Master.Glyph);
+        model.SaveLook(model.Mic, red, ChannelLookWindow.Icons[7]);
+        check("Master and Mic can be customized", model.Master.AccentColor == red && model.Mic.AccentColor == red && model.Mic.Glyph == ChannelLookWindow.Icons[7]);
+        check("Master's unrouted chips stay grey", ((SolidColorBrush)model.Master.ChipBrush).Color != red);
+
+        // A custom channel can change away from its starting color and back.
+        var custom = model.Channels.First(c => c.Id == "custom-a");
+        model.SaveLook(custom, red, ChannelLookWindow.Icons[9]);
+        var restored = new MixerModel(System.Text.Json.JsonSerializer.Deserialize<AppSettings>(System.Text.Json.JsonSerializer.Serialize(settings))!);
+        var restoredCustom = restored.Channels.First(c => c.Id == "custom-a");
+        check("looks survive a restart", restored.Game.AccentColor == red && restored.Game.Glyph == ChannelLookWindow.Icons[5] && restoredCustom.AccentColor == red && restoredCustom.Glyph == ChannelLookWindow.Icons[9]);
+
+        // Reset goes back to the defaults, and stale data is harmless.
+        dialog = Offscreen(new ChannelLookWindow(model, game, null));
+        Pump();
+        dialog.SetColor(game.DefaultColor);
+        dialog.SetGlyph(game.DefaultGlyph);
+        dialog.Save();
+        check("resetting removes the saved look", game.AccentColor == startColor && game.Glyph == startGlyph && !settings.Looks.ContainsKey("game"));
+
+        var damaged = new AppSettings();
+        damaged.Looks["chat"] = new ChannelLook { Color = "not a color", Glyph = "" };
+        damaged.Looks["gone"] = new ChannelLook { Color = "#FF0000" };
+        var survivor = new MixerModel(damaged);
+        check("a damaged saved look falls back to the default", survivor.Chat.AccentColor == survivor.Chat.DefaultColor && survivor.Chat.Glyph == survivor.Chat.DefaultGlyph);
+
+        model.DeleteChannel(custom);
+        check("deleting a channel removes its look", !settings.Looks.ContainsKey("custom-a"));
+        check("changing looks never touches audio", audioCalls == 0);
+    }
+
+    static void CheckMovingChannels(App app, Action<string, bool> check, string folder)
+    {
+        // Saved layouts: an upgrade keeps what the user had, and a damaged order loses nothing.
+        var customs = new List<CustomChannel> { new() { Id = "custom-a", Name = "Alpha" }, new() { Id = "custom-b", Name = "Beta" } };
+        static string Ids(MixerModel m) => string.Join(",", m.ScrollChannels.Select(c => c.Id));
+        check("a copy upgrading from 1.0 keeps its layout",
+            Ids(new MixerModel(new AppSettings { CustomChannels = customs })) == "game,chat,media,custom-a,custom-b,aux");
+        var repaired = new MixerModel(new AppSettings { CustomChannels = customs, ChannelOrder = ["aux", "gone", "aux", "custom-b"] });
+        check($"a damaged saved order loses no channels ({Ids(repaired)})", Ids(repaired) == "aux,custom-b,game,chat,media,custom-a");
+
+        var settings = new AppSettings { CustomChannels = customs };
+        settings.Channels["game"] = new ChannelSettings { Volume = 40 };
+        settings.Channels["chat"] = new ChannelSettings { Volume = 55 };
+        var model = new MixerModel(settings);
+        app.SetModelForCheck(model);
+        var window = Offscreen(new MainWindow(model));
+        Pump();
+
+        int audioCalls = 0, listChanges = 0;
+        foreach (var channel in model.Channels)
+        {
+            channel.VolumeChanged = _ => audioCalls++;
+            channel.MutedChanged = _ => audioCalls++;
+        }
+        model.ChannelsChanged += () => listChanges++;
+        var levels = model.Channels.ToDictionary(c => c, c => c.Volume);
+
+        var game = model.Game;
+        var host = (FrameworkElement)window.ChannelList.ItemContainerGenerator.ContainerFromItem(game);
+        check($"column spacing matches the layout ({host.ActualWidth + host.Margin.Right})", host.ActualWidth + host.Margin.Right == MainWindow.ColumnPitch);
+
+        check("Master cannot be moved", !window.BeginMove(model.Master, 10, 10));
+        check("Mic cannot be moved", !window.BeginMove(model.Mic, 10, 10));
+
+        // A click with no hold and no movement changes nothing.
+        window.BeginMove(game, 90, 90);
+        window.UpdateMove(91, 91, 0.01, held: false);
+        check("a plain click doesn't pick the channel up", !window.IsMoveLifted);
+        window.EndMove(keep: true);
+        check("a plain click doesn't change or save the order", Ids(model) == "game,chat,media,custom-a,custom-b,aux" && settings.ChannelOrder.Count == 0);
+
+        window.BeginMove(game, 90, 90);
+        window.UpdateMove(90, 90, 0.01, held: true);
+        check("holding still picks the channel up", window.IsMoveLifted);
+        window.EndMove(keep: false);
+
+        // Drag Game two places right. Its center passes each neighbor's midpoint.
+        window.BeginMove(game, 90, 90);
+        window.UpdateMove(90 + MainWindow.ColumnPitch * 2, 300, 0.01, held: false);
+        Pump();
+        check($"dragging moves the channel live ({Ids(model)})", Ids(model) == "chat,media,game,custom-a,custom-b,aux");
+        check("the column survives the move", window.ChannelList.ItemContainerGenerator.ContainerFromItem(game) == host);
+        check("every list agrees on the order", model.Channels[0] == model.Master && model.Channels[^1] == model.Mic
+            && model.Channels.Skip(1).Take(model.ScrollChannels.Count).SequenceEqual(model.ScrollChannels)
+            && model.OutputChannels.SequenceEqual(model.ScrollChannels)
+            && model.CappableChannels.Skip(1).SequenceEqual(model.ScrollChannels));
+        check("nothing is saved until the drop", settings.ChannelOrder.Count == 0 && listChanges == 0);
+        // Part way between two places, to see the lifted column over its neighbors.
+        window.UpdateMove(90 + MainWindow.ColumnPitch * 1.8, 300, 0.01, held: false);
+        System.Threading.Thread.Sleep(220);
+        Pump();
+        Shot(window, folder, "9-moving");
+        window.UpdateMove(90 + MainWindow.ColumnPitch * 2, 300, 0.01, held: false);
+
+        window.EndMove(keep: false);
+        Pump();
+        check("cancelling puts the channel back", Ids(model) == "game,chat,media,custom-a,custom-b,aux" && settings.ChannelOrder.Count == 0);
+
+        window.BeginMove(game, 90, 90);
+        window.UpdateMove(90 + MainWindow.ColumnPitch * 2, 300, 0.01, held: false);
+        window.EndMove(keep: true);
+        Pump();
+        check("dropping saves the order once", settings.ChannelOrder.SequenceEqual(["chat", "media", "game", "custom-a", "custom-b", "aux"]) && listChanges == 1);
+        check($"balance follows Game and Chat ({window.BalanceLeft})", window.BalanceLeft == 0);
+        model.MoveChannel(model.Chat, 3);
+        check($"balance sits under the further-left of the two ({window.BalanceLeft})", window.BalanceLeft == 1 * MainWindow.ColumnPitch);
+        model.MoveChannel(model.Chat, 0);
+
+        // Dragging past either end stops at the end.
+        window.BeginMove(game, MainWindow.ColumnPitch * 2 + 90, 300);
+        window.UpdateMove(-5000, 300, 0.01, held: false);
+        check($"dragging past the left end stops there ({Ids(model)})", model.ScrollChannels[0] == game);
+        window.UpdateMove(5000, 300, 0.01, held: false);
+        check($"dragging past the right end stops there ({Ids(model)})", model.ScrollChannels[^1] == game);
+        window.EndMove(keep: false);
+
+        check("moving channels never touches audio", audioCalls == 0 && model.Channels.All(c => levels[c] == c.Volume));
+
+        var restored = new MixerModel(System.Text.Json.JsonSerializer.Deserialize<AppSettings>(System.Text.Json.JsonSerializer.Serialize(settings))!);
+        check($"the order survives a restart ({Ids(restored)})", Ids(restored) == "chat,media,game,custom-a,custom-b,aux");
+
+        // Auto-scroll.
+        double width = window.ChannelScroll.ViewportWidth;
+        check("no auto-scroll in the middle", MainWindow.AutoScrollSpeed(width / 2, width) == 0);
+        check("auto-scrolls left near the left edge", MainWindow.AutoScrollSpeed(10, width) < 0);
+        check("auto-scrolls right near the right edge", MainWindow.AutoScrollSpeed(width - 10, width) > 0);
+        check("past the edge is full speed, not faster", MainWindow.AutoScrollSpeed(-500, width) == -900 && MainWindow.AutoScrollSpeed(width + 500, width) == 900);
+
+        double scrollStart = window.ChannelScroll.HorizontalOffset;
+        var near = model.ScrollChannels[0];
+        window.BeginMove(near, 10, width - 10);
+        window.UpdateMove(10, width - 10, 0.1, held: true);
+        Pump();
+        check("grabbing near an edge doesn't scroll", window.ChannelScroll.HorizontalOffset == scrollStart);
+        window.UpdateMove(40, width + 5, 0.1, held: true);
+        Pump();
+        check($"moving toward the edge scrolls ({window.ChannelScroll.HorizontalOffset:0})", window.ChannelScroll.HorizontalOffset > scrollStart);
+        window.EndMove(keep: false);
+        check("the mouse cursor is restored", Mouse.OverrideCursor == null);
     }
 
     /// <summary>--screenshots: renders the README images from sample settings. Never starts the mixer.</summary>
@@ -176,6 +413,13 @@ internal static class UiCheck
                 settings.CustomChannels.Add(new CustomChannel { Id = custom.Id, Name = custom.Name, Color = custom.Color });
                 settings.Channels[custom.Id] = new ChannelSettings { Volume = custom.Volume };
             }
+            if (customs.Length > 0)
+            {
+                settings.ChannelOrder = ["game", "chat", "media", "aux", .. customs.Select(c => c.Id)];
+                settings.Looks["custom-streaming"] = new ChannelLook { Glyph = "" };
+                settings.Looks["custom-podcast"] = new ChannelLook { Glyph = "" };
+                settings.Looks["custom-recording"] = new ChannelLook { Glyph = "" };
+            }
             var created = new MixerModel(settings);
             app.SetModelForCheck(created);
             return created;
@@ -188,8 +432,8 @@ internal static class UiCheck
                 channel.DeviceName = channel == model.Mic ? "Headset Microphone" : channel == model.Chat ? "Headset" : "Headphones";
                 string[] apps = channel == model.Game ? ["Racing Game", "Game Launcher"]
                     : channel == model.Chat ? ["Voice Chat"]
-                    : channel == model.Media ? ["Web Browser", "Music Player"]
-                    : channel == model.Aux ? ["System Sounds"]
+                    : channel == model.Media ? ["Web Browser", "Video Player"]
+                    : channel == model.Aux ? ["Music Player"]
                     : channel == model.Mic ? ["Voice Chat"]
                     : channel.DisplayName == "Streaming" ? ["Stream Alerts"]
                     : channel.DisplayName == "Podcast" ? ["Podcast Player"]
@@ -212,6 +456,14 @@ internal static class UiCheck
         settingsWindow.Height = 1040;
         Pump();
         Shot(settingsWindow, folder, "settings");
+
+        var lookWindow = Offscreen(new ChannelLookWindow(standard, standard.Aux, null));
+        Pump();
+        lookWindow.SetColor(ChannelVM.ParseColor("#E879F9")!.Value);
+        lookWindow.SetGlyph("");
+        Pump();
+        Shot(lookWindow, folder, "color-and-icon");
+        lookWindow.Close();
 
         var custom = NewModel(("custom-streaming", "Streaming", "#22D3EE", 70), ("custom-podcast", "Podcast", "#A3E635", 50), ("custom-recording", "Recording", "#FACC15", 35));
         var customWindow = Offscreen(new MainWindow(custom));
