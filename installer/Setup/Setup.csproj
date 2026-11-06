@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The custom installer and uninstaller, compiled to a native exe (no .NET needed to run it).
+    Built twice by build-installer.ps1: without a payload it acts as the uninstaller,
+    with -p:PayloadPath=... it embeds the app and acts as the installer.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>LiteMixerSetup</AssemblyName>
+    <RootNamespace>LiteMixerSetup</RootNamespace>
+    <Product>LiteMixer</Product>
+    <AssemblyTitle>LiteMixer Setup</AssemblyTitle>
+    <Description>LiteMixer Setup</Description>
+    <Company>Vantage Enterprises, LLC</Company>
+    <Copyright>Copyright (c) 2026 Vantage Enterprises, LLC</Copyright>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <PathMap>$(MSBuildProjectDirectory)=.</PathMap>
+    <ApplicationIcon>..\..\app.ico</ApplicationIcon>
+    <ApplicationManifest>..\..\app.manifest</ApplicationManifest>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishAot>true</PublishAot>
+    <OptimizationPreference>Size</OptimizationPreference>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <DebugType>none</DebugType>
+    <!-- Ships compiled into the exe, so keep it on the newest security patch; bump with LiteMixer.csproj. -->
+    <RuntimeFrameworkVersion>10.0.14</RuntimeFrameworkVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.DotNet.ILCompiler" Version="10.0.14" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(PayloadPath)' != ''">
+    <EmbeddedResource Include="$(PayloadPath)" LogicalName="payload" />
+  </ItemGroup>
+
+</Project>

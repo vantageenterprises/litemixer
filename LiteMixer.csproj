@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>LiteMixer</AssemblyName>
+    <RootNamespace>LiteMixer</RootNamespace>
+    <Version>1.0.0</Version>
+    <Product>LiteMixer</Product>
+    <Company>Vantage Enterprises, LLC</Company>
+    <Copyright>Copyright (c) 2026 Vantage Enterprises, LLC</Copyright>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <!-- Keeps build-machine folder names out of the compiled files. -->
+    <PathMap>$(MSBuildProjectDirectory)=.</PathMap>
+    <AssemblyTitle>LiteMixer</AssemblyTitle>
+    <Description>Lightweight channel mixer for Windows</Description>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Using Include="System.IO" />
+    <!-- Self-contained release builds ship their runtime, so pin it to the newest security patch. -->
+    <FrameworkReference Update="Microsoft.WindowsDesktop.App.WPF" Condition="'$(SelfContained)' == 'true'" RuntimeFrameworkVersion="10.0.14" />
+    <!-- The installer projects build separately. -->
+    <Compile Remove="installer\**" />
+    <EmbeddedResource Remove="installer\**" />
+    <None Remove="installer\**" />
+    <Page Remove="installer\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="app.ico" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,8 @@
+bin/
+obj/
+publish/
+dist/
+signing/metadata.json
+*.user
+.vs/
+dist-test/
