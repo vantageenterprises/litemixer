@@ -337,6 +337,8 @@ internal static class UiCheck
         check("a missing device is reported", StreamMath.DeviceProblem("gone", connected, []) != null);
         check("cables are recognized", StreamMath.LooksLikeCable("CABLE Input (VB-Audio Virtual Cable)") && StreamMath.LooksLikeCable("Voicemeeter Input"));
         check("real outputs aren't taken for cables", !StreamMath.LooksLikeCable("Headphones (Wireless Headset)") && !StreamMath.LooksLikeCable("Speakers (Realtek Audio)"));
+        check("a cable's stereo input comes before its 16 channel one", StreamMath.CableRank("CABLE Input (VB-Audio Virtual Cable)") < StreamMath.CableRank("CABLE In 16ch (VB-Audio Virtual Cable)"));
+        check("a 16 channel cable still comes before a real output", StreamMath.CableRank("CABLE In 16ch (VB-Audio Virtual Cable)") < StreamMath.CableRank("Speakers (Realtek Audio)"));
 
         // In the mixer, with no devices and no sessions.
         var settings = new AppSettings();

@@ -32,7 +32,7 @@ public partial class SettingsWindow : Window
     {
         var menu = new ContextMenu();
         var current = _model.Settings.StreamDeviceId;
-        var choices = _model.StreamDeviceChoices.OrderByDescending(d => Audio.StreamMath.LooksLikeCable(d.Name)).ToList();
+        var choices = _model.StreamDeviceChoices.OrderBy(d => Audio.StreamMath.CableRank(d.Name)).ToList();
         foreach (var device in choices)
             menu.Items.Add(Menus.Item(device.Name, () =>
             {

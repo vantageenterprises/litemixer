@@ -36,6 +36,10 @@ internal static class StreamMath
     public static bool LooksLikeCable(string deviceName) =>
         Regex.IsMatch(deviceName, "cable|virtual|voicemeeter|vb-audio", RegexOptions.IgnoreCase);
 
+    /// <summary>Lower comes first: a cable's normal stereo input, then its multichannel ones such as "CABLE In 16ch", then real outputs.</summary>
+    public static int CableRank(string deviceName) =>
+        !LooksLikeCable(deviceName) ? 2 : Regex.IsMatch(deviceName, @"\b\d+\s*ch\b", RegexOptions.IgnoreCase) ? 1 : 0;
+
     /// <summary>
     /// Capturing a process includes its children, so a launcher would bring its game along and the game would be heard twice.
     /// Only the most specific process is captured. A launcher's own sounds drop out while its game is making sound.

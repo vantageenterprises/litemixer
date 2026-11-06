@@ -253,7 +253,7 @@ public sealed class MixerModel : ObservableObject, IDisposable
             _s.StreamMixEnabled = value;
             // Turning it on with nothing chosen picks a virtual cable, never a real output.
             if (value && _s.StreamDeviceId == null)
-                _s.StreamDeviceId = StreamDeviceChoices.FirstOrDefault(d => StreamMath.LooksLikeCable(d.Name))?.Id;
+                _s.StreamDeviceId = StreamDeviceChoices.Where(d => StreamMath.LooksLikeCable(d.Name)).OrderBy(d => StreamMath.CableRank(d.Name)).FirstOrDefault()?.Id;
             UpdateStream();
             QueueSave();
         }
